@@ -2,7 +2,7 @@
 // import {bootstrap} from './database'
 import {fetchLocalMutations, Mutation} from './mutation'
 import {bootstrap, fetchRemoteMutations, MutationRunner} from './database'
-import ch from 'chalk'
+// import ch from 'chalk'
 import * as log from './log'
 
 async function run() {
@@ -14,18 +14,14 @@ async function run() {
   var error = false
 
   const print = Mutation.once(m => {
-    console.log(
-      `${ch.yellowBright(m.module)}:${ch.redBright(m.name)}${m.serie ? ch.greenBright('.' + m.serie) : ''}`,
-    )
-
-    for (var p of m.parents)
-      console.log(ch.grey(`  < ${p.full_name}`))
-
+    // console.log(
+    //   `${ch.yellowBright(m.module)}:${ch.redBright(m.name)}${m.serie ? ch.greenBright('.' + m.serie) : ''}`,
+    // )
     for (var e of m.errors) { log.err(e); error = true }
   })
 
   for (var mut of local) {
-    // await mut.up(print)
+    await mut.up(print)
   }
 
   if (!error) {
@@ -36,4 +32,7 @@ async function run() {
   process.exit(0)
 }
 
-run().catch(e => console.error(e))
+run().catch(e => {
+  console.error(e)
+  process.exit(1)
+})

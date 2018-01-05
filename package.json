@@ -11,12 +11,13 @@
     "chalk": "^2.3.0",
     "fs-extra": "^5.0.0",
     "pg-promise": "^5.3.4",
-    "recursive-readdir": "^2.2.1"
+    "recursive-readdir": "^2.2.1",
+    "resolve": "^1.5.0"
   },
   "devDependencies": {
-    "@types/chalk": "^2.2.0",
     "@types/fs-extra": "^5.0.0",
     "@types/node": "^8.5.2",
-    "@types/recursive-readdir": "^2.2.0"
+    "@types/recursive-readdir": "^2.2.0",
+    "@types/resolve": "^0.0.4"
   }
 }

@@ -1,4 +1,5 @@
 import * as cr from 'crypto'
+import * as res from 'resolve'
 
 const re_down = /^--\s*!d(?:own)?\(((?:.|\r|\n)*?)^--\)\s*\n|^--\s*!d(?:own)?:?(.*?)$/gim
 const re_split = /^--\s*!.*?$|^--\s*!d(?:own)?\((?:(?:.|\r|\n)*?)^--\)\s*\n/gim
@@ -260,7 +261,6 @@ export class MutationSet extends Set<Mutation> {
 
 
 import {getInfos, getScripts} from './utils'
-import {dirname} from 'path'
 async function fetchLocal(path?: string): Promise<Mutation[]> {
   path = path || process.cwd()
   const infos = await getInfos(path)
@@ -271,9 +271,10 @@ async function fetchLocal(path?: string): Promise<Mutation[]> {
   if (infos.dmut && infos.dmut.import) {
     imports = infos.dmut.import
     for (var i of imports) {
+
       mutations = [...(await fetchLocalMutations(
-        dirname(require.resolve(i)))
-      ), ...mutations]
+        res.sync(i, {basedir: path})
+      )), ...mutations]
     }
   }
 
