@@ -1,5 +1,6 @@
 
 import * as cr from 'crypto'
+import {Client} from 'pg'
 
 /**
  * Memoize un appel d'un get(). À n'utiliser que sur des properties calculées,
@@ -22,9 +23,70 @@ export function memoize(target: any, key: string, descriptor: PropertyDescriptor
 
 }
 
+//////////////////////////////////////////////////////////////////////////
+// Some regular expression helpers, to write some nicer regexps.
 
-export const re_auto = /^\s*create\s+(\w+)\s+((?:(?:\w+|"[^"]+"|`[^`]+`|\[[^\]]\])\.)*(?:\w+|"[^"]+"|`[^`]+`|\[[^\]]\]))/i
+function sep_by(pattern: RegExp, sep: RegExp) {
+  return new RegExp(`(?:(?:${pattern.source})${sep.source})*(?:${pattern.source})`)
+}
 
+const patterns: {[name: string]: RegExp} = {
+  id: sep_by(/\w+|"[^"]+"|`[^`]+`|\[[^\]]\]/, /\s*\.\s*/),
+  create: /create\s*(?:\s+\w+)*?/
+}
+
+function mkregex(reg: RegExp) {
+  var src = reg.source
+  for (var x in patterns)
+    src = src.replace(new RegExp(`:${x}`, 'g'), patterns[x].source)
+  src = src.replace(/(\s|\n)/g, ' ').replace(/ +/g, /(?:\s|\n|\r|\t)+/.source)
+  return new RegExp('^\\s*' + src, 'i')
+}
+
+
+export const auto_makers = new Map<RegExp, ((...a: string[]) => string)>()
+
+auto_makers.set(
+  mkregex(/:create (role|table|extension|schema|index|view) (:id)/),
+  (type, id) => {
+    return `drop ${type} ${id}`
+  }
+)
+
+auto_makers.set(
+  mkregex(/grant ([^]+) on ((?:\w+ )?:id) to (:id)/),
+  (rights, to, what) => {
+    return `revoke ${rights} from ${to} on ${what}`
+  }
+)
+
+auto_makers.set(
+  mkregex(/:create function (:id)\s*\(([^\)]*)\)/),
+  (name, args) => {
+    return `drop function ${name}(${args})`
+  }
+)
+
+auto_makers.set(
+  mkregex(/:create trigger (:id) (?:(?! on)|[^])+ on (:id)/),
+  (name, table) => {
+    return `drop trigger ${name} on ${table}`
+  }
+)
+
+auto_makers.set(
+  mkregex(/alter table (:id) enable row level security/),
+  (table) => {
+    return `alter table ${table} disable row level security`
+  }
+)
+
+auto_makers.set(
+  mkregex(/create policy (\w+) on (:id)/),
+  (name, table) => {
+    return `drop policy ${name} on ${table}`
+  }
+)
 
 export function tpljoin(s: TemplateStringsArray, a: any[]) {
   const res = [] as string[]
@@ -38,6 +100,9 @@ export function tpljoin(s: TemplateStringsArray, a: any[]) {
 
 
 export class Mutation {
+
+  static registry = new Set<Mutation>()
+
   deps = new Set<Mutation>()
   children = new Set<Mutation>()
   statements: string[] = []
@@ -58,14 +123,29 @@ export class Mutation {
       .setStatic()
   }
 
+  static apply(c: Client) {
+    //
+
+    // Get the mutations on the server
+
+    // Drop the ones for which we have no hash
+
+    // Apply the ones
+
+  }
+
   setStatic() {
     this.static = true
     return this
   }
 
+  constructor() {
+    Mutation.registry.add(this)
+  }
+
   @memoize
   get hash(): string {
-    const hash = cr.createHash('sha256') // this should be enough to avoid collisions
+    const hash = cr.createHash('sha512') // this should be enough to avoid collisions
 
     // we have to be smart about the source and remove only the parts we don't want
     // to compare only the code.
@@ -99,15 +179,20 @@ export class Mutation {
 
   auto(str: TemplateStringsArray, ...a: any[]) {
     const stmt = tpljoin(str, a)
-    const match = re_auto.exec(stmt)
-    if (match == null)
-      throw new Error(`Unrecognized statement for auto(): ${stmt}`)
-    const type = match[1]
-    const ident = match[2]
-    this.undo.push(`drop ${type} ${ident}`)
-    console.log(`drop ${type} ${ident} -- auto-generated`)
-    this.statements.push(stmt)
-    return this
+
+    for (var [re, action] of auto_makers.entries()) {
+      const match = re.exec(stmt)
+      if (match == null)
+        continue
+      const args = match.slice(1)
+      const result = action(...args) + ' -- @auto'
+      this.undo.unshift(result)
+      // console.log(result)
+      this.statements.push(stmt)
+      return this
+
+    }
+    throw new Error(`Unrecognized statement for auto(): ${stmt}`)
   }
 
   protected up(str: TemplateStringsArray, ...a: any[]) {
@@ -130,7 +215,6 @@ export class Mutation {
   }
 
   fn(fn: Function, ...types: string[]) {
-
     if (fn.length !== types.length - 1)
       throw new Error(`You muse define the same number of types for your function arguments as well as the return type.`)
 
@@ -140,15 +224,15 @@ export class Mutation {
     const match = re_js.exec(src)
     if (!match) throw new Error(`Unable to parse function !`)
 
-    const args = match[1].split(',').map((a, i) => `${a.trim()} ${types[i]}`.replace('...', 'variadic '))
-    console.log(args)
+    const args = match[1].split(',').map((a, i) => `${a.trim()} ${types[i]}`.replace(/...(\w+) (\w+)/g, (all, arg, type) => {
+      return `variadic ${arg} ${type}[]`
+    }))
     const body = match[2].trim()
 
     const stmt = `create function ${fn.name}(${args}) returns ${types[types.length - 1]} as $$
       ${body}
     $$ language plv8`
-    console.log(stmt)
-    const undo = `drop function ${fn.name}(${types.join(',')})`
+    const undo = `drop function ${fn.name}(${args})`
     this.statements.push(stmt)
     this.undo.unshift(undo)
   }
