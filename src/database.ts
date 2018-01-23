@@ -1,19 +1,9 @@
 
-import * as pgp from 'pg-promise'
-import {Mutation, MutationSet} from './mutation'
+import {Client, QueryResult} from 'pg'
+import {Mutation} from './mutation'
+
 import chalk from 'chalk'
 const ch = chalk.constructor({level: 3})
-
-const database = pgp()
-
-const url = process.env.DATABASE_URL || 'postgres://user:pass@non_existent_server:5432/database'
-
-export interface Extensions {
-
-}
-
-export const db: pgp.IDatabase<Extensions> = database(url)
-
 
 export async function query(stmt: string, args?: any): Promise<any> {
   try {
@@ -28,65 +18,9 @@ export async function query(stmt: string, args?: any): Promise<any> {
   }
 }
 
-const schema = `public`
+const schema = `dmut`
 const table = `_dmut_migrations`
 const tbl = `"${schema}"."${table}"`
-
-/**
- * Create the table that will hold the mutation log.
- */
-export async function bootstrap() {
-
-
-  const create_sql = `
-  begin;
-  create schema if not exists ${schema};
-
-  create table if not exists ${tbl} (
-    name Text primary key,
-    source Text,
-    ghost Boolean default false,
-    date_applied Timestamp default now()
-  );
-
-  create index if not exists pgmutate_date_applied
-    on ${tbl} using btree (date_applied);
-
-  comment on column ${tbl}.name
-    is 'The fully qualified name of the module';
-
-  comment on column ${tbl}.source
-    is 'The contents of the mutation file';
-
-  comment on column ${tbl}.ghost
-    is 'True if the mutation was put in database but not applied';
-
-  comment on column ${tbl}.date_applied
-    is 'Timestamp of when the mutation was applied to the database';
-
-  commit;
-  `
-
-  return await db.query(create_sql)
-}
-
-
-/**
- * Fetch mutations that were already in the database
- */
-export async function fetchRemoteMutations(): Promise<MutationSet> {
-  const res = await db.query(`select * from ${tbl}`) as any[]
-
-  const muts = res.map(dbval => {
-    const [module, name] = dbval.name.split(':')
-    return new Mutation(name, module, dbval.source)
-  })
-
-  for (var m of muts)
-    m.computeRequirement(muts)
-
-  return new MutationSet(muts)
-}
 
 
 export class MutationRunner {
@@ -127,14 +61,78 @@ export class MutationRunner {
     }
   }
 
-  to_down = new Set<Mutation>()
-  to_up = new Set<Mutation>()
-
   constructor(
-    public local: MutationSet,
-    public remote: MutationSet
+    public client: Client
   ) {
 
+  }
+
+  async bootstrap(): Promise<QueryResult> {
+
+
+    const create_sql = `
+    begin;
+    create schema if not exists ${schema};
+
+    create table if not exists ${tbl} (
+      hash text primary key,
+      statements text[],
+      undo text[],
+      depends text[],
+      date_applied Timestamp default now()
+    );
+
+    comment on column ${tbl}.hash
+      is 'A unique hash identifying the mutation';
+
+    comment on column ${tbl}.statements
+      is 'The statements applied with this mutation';
+
+    comment on column ${tbl}.down
+      is 'The statements that would be applied to undo this mutation';
+
+    comment on column ${tbl}.depends
+      is 'A list of hashes this mutation depends on';
+
+    comment on column ${tbl}.date_applied
+      is 'Timestamp of when the mutation was applied to the database';
+
+    create function ${schema}.down() returns trigger as $$
+    declare
+      stmt text;
+    begin
+      delete from ${tbl} where OLD.hash = any depends;
+      foreach stmt in array OLD.undo loop
+        execute stmt;
+      end loop;
+    end
+    $$ language plpgsql;
+
+    create trigger undo_mutation before delete on ${tbl}
+    for each row
+    execute procedure ${schema}.down();
+
+    commit;
+    `
+
+    return await this.client.query(create_sql)
+  }
+
+  /**
+   * Fetch the hashes of the mutations we have in database.
+   */
+  async fetchRemoteMutations(): Promise<Set<string>> {
+    const res = await this.client.query(`select * from ${tbl}`)
+
+    const muts = res.rows.map(dbval => {
+      const [module, name] = dbval.name.split(':')
+      return new Mutation(name, module, dbval.source)
+    })
+
+    for (var m of muts)
+      m.computeRequirement(muts)
+
+    return new MutationSet(muts)
   }
 
   /**

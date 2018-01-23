@@ -1,6 +1,6 @@
 {
   "name": "dmut",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "repository": "https://github.com/ceymard/dmut",
   "description": "A migration utility for PostgreSQL designed for schema and code changes inside your database.",
   "license": "MIT",
@@ -11,15 +11,9 @@
   "types": "./lib/dmut.d.ts",
   "dependencies": {
     "chalk": "^2.3.0",
-    "fs-extra": "^5.0.0",
-    "pg-promise": "^5.3.4",
-    "recursive-readdir": "^2.2.1",
-    "resolve": "^1.5.0"
+    "pg": "^7.4.1"
   },
   "devDependencies": {
-    "@types/fs-extra": "^5.0.0",
-    "@types/node": "^8.5.2",
-    "@types/recursive-readdir": "^2.2.0",
-    "@types/resolve": "^0.0.4"
+    "@types/node": "^8.5.2"
   }
 }
