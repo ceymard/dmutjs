@@ -1,6 +1,5 @@
 
 import * as cr from 'crypto'
-import {Client} from 'pg'
 
 /**
  * Memoize un appel d'un get(). À n'utiliser que sur des properties calculées,
@@ -47,7 +46,7 @@ function mkregex(reg: RegExp) {
 export const auto_makers = new Map<RegExp, ((...a: string[]) => string)>()
 
 auto_makers.set(
-  mkregex(/:create (role|table|extension|schema|index|view) (:id)/),
+  mkregex(/:create (role|table|extension|schema|view|index) (:id)/),
   (type, id) => {
     return `drop ${type} ${id}`
   }
@@ -55,8 +54,8 @@ auto_makers.set(
 
 auto_makers.set(
   mkregex(/grant ([^]+) on ((?:\w+ )?:id) to (:id)/),
-  (rights, to, what) => {
-    return `revoke ${rights} from ${to} on ${what}`
+  (rights, what, to) => {
+    return `revoke ${rights} on ${what} from ${to}`
   }
 )
 
@@ -103,8 +102,7 @@ export class Mutation {
 
   static registry = [] as Mutation[]
 
-  deps = new Set<Mutation>()
-  children = new Set<Mutation>()
+  children: Mutation[] = []
   statements: string[] = []
   undo: string[] = []
   static: boolean = false
@@ -123,17 +121,6 @@ export class Mutation {
       .setStatic()
   }
 
-  static apply(c: Client) {
-    //
-
-    // Get the mutations on the server
-
-    // Drop the ones for which we have no hash
-
-    // Apply the ones
-
-  }
-
   setStatic() {
     this.static = true
     return this
@@ -145,7 +132,7 @@ export class Mutation {
 
   @memoize
   get hash(): string {
-    const hash = cr.createHash('sha512') // this should be enough to avoid collisions
+    const hash = cr.createHash('sha1') // this should be enough to avoid collisions
 
     // we have to be smart about the source and remove only the parts we don't want
     // to compare only the code.
@@ -161,6 +148,10 @@ export class Mutation {
       hash.update(replaced)
     }
 
+    for (var c of this.children) {
+      hash.update(c.hash)
+    }
+
     return hash.digest('hex')
   }
 
@@ -170,8 +161,7 @@ export class Mutation {
       if (this.static && !m.static)
         throw new Error(`A static mutation can't depend on a non-static one.`)
 
-      m.children.add(this)
-      this.deps.add(this)
+      m.children.push(this)
     }
 
     return this
