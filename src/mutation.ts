@@ -101,7 +101,7 @@ export function tpljoin(s: TemplateStringsArray, a: any[]) {
 
 export class Mutation {
 
-  static registry = new Set<Mutation>()
+  static registry = [] as Mutation[]
 
   deps = new Set<Mutation>()
   children = new Set<Mutation>()
@@ -140,7 +140,7 @@ export class Mutation {
   }
 
   constructor() {
-    Mutation.registry.add(this)
+    Mutation.registry.push(this)
   }
 
   @memoize
@@ -199,6 +199,11 @@ export class Mutation {
     const stmt = tpljoin(str, a)
     this.statements.push(stmt)
     // Devrait renvoyer down.
+    return this
+  }
+
+  comment(str: TemplateStringsArray, ...a: any[]) {
+    this.statements.push('comment ' + tpljoin(str, a))
     return this
   }
 
