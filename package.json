@@ -7,6 +7,10 @@
   "bin": {
     "dmut": "./lib/cli.js"
   },
+  "scripts": {
+    "build": "wtsc",
+    "watch": "wtsc -w"
+  },
   "main": "./lib/dmut.js",
   "types": "./lib/dmut.d.ts",
   "dependencies": {
