@@ -210,8 +210,6 @@ export class Mutation {
   }
 
   fn(fn: Function, ...types: string[]) {
-    if (fn.length !== types.length - 1)
-      throw new Error(`You muse define the same number of types for your function arguments as well as the return type.`)
 
     const re_js = /^\s*function\s+\w+\s*\(([^\)]*)\)\s*\{([^]*)\}\s*/igm
 
@@ -222,6 +220,8 @@ export class Mutation {
     const args = match[1].split(',').map((a, i) => `${a.trim()} ${types[i]}`.replace(/...(\w+) (\w+)/g, (all, arg, type) => {
       return `variadic ${arg} ${type}[]`
     }))
+    if (args.length !== types.length - 1)
+      throw new Error(`You muse define the same number of types for your function arguments as well as the return type.`)
     const body = match[2].trim()
 
     const stmt = `create function ${fn.name}(${args}) returns ${types[types.length - 1]} as $$
@@ -230,6 +230,7 @@ export class Mutation {
     const undo = `drop function ${fn.name}(${args})`
     this.statements.push(stmt)
     this.undo.unshift(undo)
+    return this
   }
 
 }
