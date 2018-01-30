@@ -72,23 +72,6 @@ export class MutationRunner {
     return res
   }
 
-  without<T extends MutationRow|Mutation>(reg: T[], _hashes: string[]) {
-    const hashes = new Set<string>(_hashes)
-    const res: T[] = []
-    const excluded: T[] = []
-    for (var r of reg) {
-      if (hashes.has(r.hash)) {
-        excluded.push(r)
-        for (var c of r.children) {
-          hashes.add(c instanceof Mutation ? c.hash : c)
-        }
-      } else {
-        res.push(r)
-      }
-    }
-    return [res, excluded]
-  }
-
   /**
    * Perform the mutations
    */
