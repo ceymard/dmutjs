@@ -89,6 +89,7 @@ auto_makers.set(
 
 export function tpljoin(s: TemplateStringsArray, a: any[]) {
   const res = [] as string[]
+  // console.log(s, a)
   for (var i = 0; i < s.length - 1; i++) {
     res.push(s[i])
     res.push(a[i].toString())
@@ -100,8 +101,6 @@ export function tpljoin(s: TemplateStringsArray, a: any[]) {
 
 export class Mutation {
 
-  static registry = [] as Mutation[]
-
   identifier: string = ''
   children: Mutation[] = []
   parents: Mutation[] = []
@@ -109,27 +108,9 @@ export class Mutation {
   undo: string[] = []
   static: boolean = false
 
-  static depends(...ms: Mutation[]) {
-    return new Mutation()
-      .depends(...ms)
-  }
-
-  static get create() {
-    return new Mutation()
-  }
-
-  static get static() {
-    return new Mutation()
-      .setStatic()
-  }
-
   setStatic() {
     this.static = true
     return this
-  }
-
-  constructor() {
-    Mutation.registry.push(this)
   }
 
   @memoize

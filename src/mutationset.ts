@@ -1,0 +1,86 @@
+
+import {Mutation} from './mutation'
+
+export const schema = `"dmut"`
+export const table = `"mutations"`
+export const tbl = `${schema}.${table}`
+
+
+/**
+ * Dmut mutations are always the first, since they create the table the mutations
+ * will be stored in.
+ */
+export const dmut_mutation = new Mutation().setStatic()
+.name `dmut installation`
+.auto `create schema ${schema}`
+.auto `create table ${tbl} (
+  "hash" text primary key,
+  "identifier" text,
+  "statements" text[],
+  "undo" text[],
+  "children" text[],
+  "static" boolean,
+  "date_applied" Timestamp default now()
+)`
+.comment `on schema ${schema} is 'The schema holding informations about mutations.'`
+.comment `on column ${tbl}."hash" is 'A unique hash identifying the mutation'`
+.comment `on column ${tbl}."statements" is 'The list of statements that were applied in this mutation'`
+.comment `on column ${tbl}."undo" is 'The statements that would be run if the mutation was abandoned'`
+.comment `on column ${tbl}."children" is 'The list of hashes of mutations that should be downed before this one'`
+.comment `on column ${tbl}."static" is 'Wether this mutation is static, as in it must not be undoed'`
+.comment `on column ${tbl}."date_applied" is 'The timestamp at which this mutation was applied to the database'`
+
+
+/**
+ * Holder of local mutations
+ */
+export class MutationRegistry {
+
+
+  constructor(public mutations = [] as Mutation[]) {
+    if (mutations.length === 0)
+      mutations.push(dmut_mutation)
+  }
+
+  protected _add(m: Mutation) {
+    this.mutations.push(m)
+    return m
+  }
+
+  depends(...ms: Mutation[]) {
+    return this._add(new Mutation()
+      .depends(...ms))
+  }
+
+  get create() {
+    return this._add(new Mutation())
+  }
+
+  get static() {
+    return this._add(new Mutation()
+      .setStatic())
+  }
+
+  /**
+   * Clones the mutationset, excluding the given hashes
+   * @param hash the hash to exclude
+   */
+  without(hashes: string[]) {
+    const h = new Set(hashes)
+    const newmuts = []
+    for (var m of this.mutations) {
+      if (h.has(m.hash)) {
+        for (var c of m.children)
+          h.add(c.hash)
+        continue
+      }
+      newmuts.push(m)
+    }
+    return new MutationRegistry(newmuts)
+  }
+
+  [Symbol.iterator]() {
+    return this.mutations[Symbol.iterator]()
+  }
+
+}

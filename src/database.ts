@@ -1,38 +1,10 @@
 
 import {Client, QueryResult} from 'pg'
 import {Mutation} from './mutation'
+import {dmut_mutation, MutationRegistry, tbl} from './mutationset'
 
 import chalk from 'chalk'
 const ch = chalk.constructor({level: 3})
-
-const schema = `"dmut"`
-const table = `"mutations"`
-const tbl = `${schema}.${table}`
-
-
-/**
- * Dmut mutations are always the first, since they create the table the mutations
- * will be stored in.
- */
-export const dmut_mutation = Mutation.static
-.name `dmut installation`
-.auto `create schema ${schema}`
-.auto `create table ${tbl} (
-  "hash" text primary key,
-  "identifier" text,
-  "statements" text[],
-  "undo" text[],
-  "children" text[],
-  "static" boolean,
-  "date_applied" Timestamp default now()
-)`
-.comment `on schema ${schema} is 'The schema holding informations about mutations.'`
-.comment `on column ${tbl}."hash" is 'A unique hash identifying the mutation'`
-.comment `on column ${tbl}."statements" is 'The list of statements that were applied in this mutation'`
-.comment `on column ${tbl}."undo" is 'The statements that would be run if the mutation was abandoned'`
-.comment `on column ${tbl}."children" is 'The list of hashes of mutations that should be downed before this one'`
-.comment `on column ${tbl}."static" is 'Wether this mutation is static, as in it must not be undoed'`
-.comment `on column ${tbl}."date_applied" is 'The timestamp at which this mutation was applied to the database'`
 
 
 export interface HasHash {
@@ -59,7 +31,8 @@ export class MutationRunner {
   testing = false
 
   constructor(
-    public client: Client
+    public client: Client,
+    public registry: MutationRegistry
   ) {
 
   }
@@ -119,11 +92,11 @@ export class MutationRunner {
   /**
    * Perform the mutations
    */
-  async mutate(local = Mutation.registry) {
+  async mutate(registry = this.registry) {
 
     const dbmut = await this.fetchRemoteMutations()
     // const dbdct = this.mkdct(dbmut)
-    const dct = this.mkdct(local) // a dictionary of local mutations
+    const dct = this.mkdct(registry.mutations) // a dictionary of local mutations
 
     // These mutations will have to go
     const gone = [] as MutationRow[]
@@ -163,7 +136,7 @@ export class MutationRunner {
 
       // Local is always in the good order, since children cannot be declared
       // before their parents.
-      const to_apply: Mutation[] = local
+      const to_apply: Mutation[] = registry.mutations
       for (var t of to_apply) {
         if (still_there[t.hash]) continue
         console.log(`  » ${ch.greenBright(t.identifier || t.hash)}`)
@@ -200,16 +173,16 @@ export class MutationRunner {
 
   /**
    *
-   * @param mutations
+   * @param registry
    */
-  async test(mutations = Mutation.registry) {
+  async test(registry = this.registry) {
     // At this point, we already mutated all of our local mutations.
     // We will now try to remove them one by one and see if they hold
     this.testing = true
 
     console.log(`\n--- now testing mutations---\n`)
     var errored = false
-    for (var m of mutations) {
+    for (var m of registry.mutations) {
       // Not testing the basic dmut mutation
       if (m.hash === dmut_mutation.hash) continue
 
@@ -222,13 +195,13 @@ export class MutationRunner {
         await this.query('savepoint "dmut-testing"')
 
         // Try removing this mutation from our local list
-        const [local] = this.without(mutations, [m.hash])
+        const local = registry.without([m.hash])
 
         // First mutate while having removed the mutation
         await this.mutate(local)
 
         // Then re-mutate with all of them
-        await this.mutate(mutations)
+        await this.mutate(registry)
 
       } catch(e) {
         // console.log('ERRORS ERRORS')
