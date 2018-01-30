@@ -102,7 +102,9 @@ export class Mutation {
 
   static registry = [] as Mutation[]
 
+  identifier: string = ''
   children: Mutation[] = []
+  parents: Mutation[] = []
   statements: string[] = []
   undo: string[] = []
   static: boolean = false
@@ -148,8 +150,8 @@ export class Mutation {
       hash.update(replaced)
     }
 
-    for (var c of this.children) {
-      hash.update(c.hash)
+    for (var p of this.parents) {
+      hash.update(p.hash)
     }
 
     return hash.digest('hex')
@@ -162,8 +164,14 @@ export class Mutation {
         throw new Error(`A static mutation can't depend on a non-static one.`)
 
       m.children.push(this)
+      this.parents.push(m)
     }
 
+    return this
+  }
+
+  name(str: TemplateStringsArray, ...a: any[]) {
+    this.identifier = tpljoin(str, a)
     return this
   }
 

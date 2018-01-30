@@ -15,9 +15,11 @@ const tbl = `${schema}.${table}`
  * will be stored in.
  */
 export const dmut_mutation = Mutation.static
+.name `dmut installation`
 .auto `create schema ${schema}`
 .auto `create table ${tbl} (
   "hash" text primary key,
+  "identifier" text,
   "statements" text[],
   "undo" text[],
   "children" text[],
@@ -39,6 +41,7 @@ export interface HasHash {
 
 
 export interface MutationRow {
+  identifier: string
   hash: string
   statements: string[]
   undo: string[]
@@ -122,30 +125,35 @@ export class MutationRunner {
     // const dbdct = this.mkdct(dbmut)
     const dct = this.mkdct(local) // a dictionary of local mutations
 
-    const invalid_hashes = [] as string[]
-    // Compute the hashes that are in db, but not in local anymore.
-    // These are the base mutations that need to go.
-    for (var d of dbmut)
-      if (!dct[d.hash])
-        invalid_hashes.push(d.hash)
+    // These mutations will have to go
+    const gone = [] as MutationRow[]
 
-    // With this list of hashes, get the definite list of mutations
-    // that need to be undone (these include children of the marked mutations
-    // we already had), and a list of the mutations that will stay and should
-    // not be re-upped.
-    const [stay, leave] = this.without(dbmut, invalid_hashes)
-    leave.reverse()
-    const still_there = this.mkdct(stay)
+    // But these will stay.
+    const staying = [] as MutationRow[]
+
+    for (var d of dbmut) {
+      if (!dct[d.hash]) {
+        gone.push(d)
+      } else {
+        staying.push(d)
+      }
+    }
+
+    // We have to de-apply mutations in reverse order
+    gone.reverse()
+
+    // This will be used to avoid upping a local mutation.
+    const still_there = this.mkdct(staying)
 
     if (!this.testing) await this.query('begin')
     try {
 
-      for (var rm of leave) {
+      for (var rm of gone) {
         // if (rm.static)
         //   throw new Error(`cannot undo a static mutation, yet ${rm.hash} is no longer here`)
 
         // LOG that we're destroying a mutation ?
-        console.log(`  « ${ch.redBright(rm.hash)}`)
+        console.log(`  « ${ch.redBright(rm.identifier || rm.hash)}`)
         for (var undo of rm.undo) {
           await this.query(undo)
         }
@@ -158,19 +166,18 @@ export class MutationRunner {
       const to_apply: Mutation[] = local
       for (var t of to_apply) {
         if (still_there[t.hash]) continue
-        console.log(`  » ${ch.greenBright(t.hash)}`)
+        console.log(`  » ${ch.greenBright(t.identifier || t.hash)}`)
 
         for (var stmt of t.statements) {
           // console.log(stmt)
           await this.query(stmt)
         }
 
-        await this.query(`insert into ${tbl}(hash, statements, undo, children, static)
-          values($1, $2, $3, $4, $5)`,
-          [t.hash, t.statements, t.undo, Array.from(t.children).map(c => c.hash), t.static]
+        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, children, static)
+          values($1, $2, $3, $4, $5, $6)`,
+          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.children).map(c => c.hash), t.static]
         )
       }
-
 
       // Once we're done, we might want to commit...
       // await query('rollback')
@@ -211,7 +218,7 @@ export class MutationRunner {
         // are up. As such, we want to track the down mutations that were applied
         // to reapply them, and them only.
 
-        console.log(ch.greenBright(`  ==> Testing removal of ${m.hash}`))
+        console.log(ch.greenBright(`  ==> Testing removal of ${m.identifier || m.hash}`))
         await this.query('savepoint "dmut-testing"')
 
         // Try removing this mutation from our local list
