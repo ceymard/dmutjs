@@ -67,14 +67,24 @@ export class MutationRegistry {
    */
   without(hashes: string[]) {
     const h = new Set(hashes)
-    const newmuts = []
+    const newmuts = [] as Mutation[]
+
+    function tag(m: Mutation) {
+      h.add(m.hash)
+      for (var c of m.children)
+        tag(c)
+    }
+
     for (var m of this.mutations) {
-      if (h.has(m.hash)) {
-        for (var c of m.children)
-          h.add(c.hash)
-        continue
-      }
-      newmuts.push(m)
+      if (h.has(m.hash))
+        tag(m)
+    }
+
+    for (var m of this.mutations) {
+      // Now that they're all tagged, push the mutations that are
+      // still included
+      if (!h.has(m.hash))
+        newmuts.push(m)
     }
     return new MutationRegistry(newmuts)
   }

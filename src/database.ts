@@ -57,11 +57,30 @@ export class MutationRunner {
    */
   async fetchRemoteMutations(): Promise<MutationRow[]> {
     try {
-      const res = await this.client.query(`select * from ${tbl} order by date_applied`)
-      return res.rows as MutationRow[]
+      // just check if table exists pretty quickly. This will fail if the table does not exist
+      await this.client.query(`select 1 from ${tbl} limit 1`)
     } catch {
       return []
     }
+
+    const res = await this.client.query(`
+    with recursive recursive_mutations (identifier, hash, statements, undo, children, static, date_applied) as (
+      -- start with the root mutations
+      select t.identifier, t.hash, t.statements, t.undo, t.children, t.static, t.date_applied
+      from ${tbl} t left join ${tbl} t2
+        on t.hash = any (t2.children)
+        where t2.hash is null
+
+      union
+
+      select t.identifier, t.hash, t.statements, t.undo, t.children, t.static, t.date_applied
+      from ${tbl} t inner join recursive_mutations t2 on t.hash = any (t2.children)
+    )
+    select * from recursive_mutations
+    `)
+    // console.log(await this.client.query(`select identifier from ${tbl}`))
+
+    return res.rows as MutationRow[]
   }
 
   mkdct<T extends HasHash>(reg: T[]): {[hash: string]: T} {
@@ -97,6 +116,7 @@ export class MutationRunner {
 
     // We have to de-apply mutations in reverse order
     gone.reverse()
+    // console.log(gone.map(m => m.identifier))
 
     // This will be used to avoid upping a local mutation.
     const still_there = this.mkdct(staying)
@@ -148,7 +168,7 @@ export class MutationRunner {
         await this.query('rollback')
       }
 
-      console.error(e.message)
+      console.log(e.message)
       throw e
     }
   }
