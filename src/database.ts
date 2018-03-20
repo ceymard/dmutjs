@@ -17,7 +17,7 @@ export interface MutationRow {
   hash: string
   statements: string[]
   undo: string[]
-  children: string[]
+  parents: string[]
   static: boolean
   date_applied: Date
 
@@ -63,24 +63,36 @@ export class MutationRunner {
       return []
     }
 
-    const res = await this.client.query(`
-    with recursive recursive_mutations (identifier, hash, statements, undo, children, static, date_applied) as (
-      -- start with the root mutations
-      select t.identifier, t.hash, t.statements, t.undo, t.children, t.static, t.date_applied
-      from ${tbl} t left join ${tbl} t2
-        on t.hash = any (t2.children)
-        where t2.hash is null
+    try {
+      const res = await this.client.query(`select * from ${tbl}`)
+      const rows = res.rows as MutationRow[]
+      const result = [] as MutationRow[]
+      const dct = rows.reduce((acc, item) => {
+        acc[item.hash] = item
+        return acc
+      }, {} as {[hash: string]: MutationRow})
 
-      union
+      const seen = new Set<string>()
 
-      select t.identifier, t.hash, t.statements, t.undo, t.children, t.static, t.date_applied
-      from ${tbl} t inner join recursive_mutations t2 on t.hash = any (t2.children)
-    )
-    select * from recursive_mutations
-    `)
-    // console.log(await this.client.query(`select identifier from ${tbl}`))
+      function add(m: MutationRow) {
+        if (seen.has(m.hash)) return
 
-    return res.rows as MutationRow[]
+        for (var c of m.parents)
+          add(dct[c])
+
+        seen.add(m.hash)
+        result.push(m)
+      }
+
+      for (var m of res.rows as MutationRow[]) {
+        add(m)
+      }
+      // console.log(result.map(m => [m.identifier, m.hash]))
+      return result as MutationRow[]
+    } catch (e) {
+      console.log(e.message)
+      return []
+    }
   }
 
   mkdct<T extends HasHash>(reg: T[]): {[hash: string]: T} {
@@ -98,7 +110,7 @@ export class MutationRunner {
 
     const dbmut = await this.fetchRemoteMutations()
     // const dbdct = this.mkdct(dbmut)
-    const dct = this.mkdct(registry.mutations) // a dictionary of local mutations
+    const local = new Set<string>(registry.mutations.map(m => m.hash)) // a dictionary of local mutations
 
     // These mutations will have to go
     const gone = [] as MutationRow[]
@@ -107,7 +119,7 @@ export class MutationRunner {
     const staying = [] as MutationRow[]
 
     for (var d of dbmut) {
-      if (!dct[d.hash]) {
+      if (!local.has(d.hash)) {
         gone.push(d)
       } else {
         staying.push(d)
@@ -116,10 +128,10 @@ export class MutationRunner {
 
     // We have to de-apply mutations in reverse order
     gone.reverse()
-    // console.log(gone.map(m => m.identifier))
 
     // This will be used to avoid upping a local mutation.
-    const still_there = this.mkdct(staying)
+    // const still_there = this.mkdct(staying)
+    const still_there = new Set<string>(staying.map(m => m.hash.trim()))
 
     if (!this.testing) await this.query('begin')
     try {
@@ -141,7 +153,7 @@ export class MutationRunner {
       // before their parents.
       const to_apply: Mutation[] = registry.mutations
       for (var t of to_apply) {
-        if (still_there[t.hash]) continue
+        if (still_there.has(t.hash)) continue
         console.log(`  » ${ch.greenBright(t.identifier || t.hash)}`)
 
         for (var stmt of t.statements) {
@@ -149,9 +161,9 @@ export class MutationRunner {
           await this.query(stmt)
         }
 
-        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, children, static)
+        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, parents, static)
           values($1, $2, $3, $4, $5, $6)`,
-          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.children).map(c => c.hash), t.static]
+          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.parents).map(c => c.hash), t.static]
         )
       }
 

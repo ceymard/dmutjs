@@ -18,7 +18,7 @@ export const dmut_mutation = new Mutation().setStatic()
   "identifier" text,
   "statements" text[],
   "undo" text[],
-  "children" text[],
+  "parents" text[],
   "static" boolean,
   "date_applied" Timestamp default now()
 )`
@@ -26,7 +26,7 @@ export const dmut_mutation = new Mutation().setStatic()
 .comment `on column ${tbl}."hash" is 'A unique hash identifying the mutation'`
 .comment `on column ${tbl}."statements" is 'The list of statements that were applied in this mutation'`
 .comment `on column ${tbl}."undo" is 'The statements that would be run if the mutation was abandoned'`
-.comment `on column ${tbl}."children" is 'The list of hashes of mutations that should be downed before this one'`
+.comment `on column ${tbl}."parents" is 'The list of hashes of mutations that this one depends on'`
 .comment `on column ${tbl}."static" is 'Wether this mutation is static, as in it must not be undoed'`
 .comment `on column ${tbl}."date_applied" is 'The timestamp at which this mutation was applied to the database'`
 
