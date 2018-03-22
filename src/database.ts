@@ -46,8 +46,8 @@ export class MutationRunner {
       const res = await this.client.query(stmt, args)
       return res
     } catch (e) {
-      console.log(`  ${ch.redBright(e.message)}`)
       console.log(`${ch.grey.bold('On statement:')}\n  ${ch.grey(stmt)}`)
+      console.log(`  ${ch.redBright(e.message)}`)
       throw e
     }
   }
@@ -91,7 +91,7 @@ export class MutationRunner {
       return result as MutationRow[]
     } catch (e) {
       console.log(e.message)
-      return []
+      throw e
     }
   }
 
@@ -125,6 +125,7 @@ export class MutationRunner {
         staying.push(d)
       }
     }
+    const output = [] as string[]
 
     // We have to de-apply mutations in reverse order
     gone.reverse()
@@ -141,7 +142,7 @@ export class MutationRunner {
         //   throw new Error(`cannot undo a static mutation, yet ${rm.hash} is no longer here`)
 
         // LOG that we're destroying a mutation ?
-        console.log(`  « ${ch.redBright(rm.identifier || rm.hash)}`)
+        output.push(`  « ${ch.redBright(rm.identifier || rm.hash)}`)
         for (var undo of rm.undo) {
           await this.query(undo)
         }
@@ -154,7 +155,7 @@ export class MutationRunner {
       const to_apply: Mutation[] = registry.mutations
       for (var t of to_apply) {
         if (still_there.has(t.hash)) continue
-        console.log(`  » ${ch.greenBright(t.identifier || t.hash)}`)
+        output.push(`  » ${ch.greenBright(t.identifier || t.hash)}`)
 
         for (var stmt of t.statements) {
           // console.log(stmt)
@@ -170,17 +171,19 @@ export class MutationRunner {
       // Once we're done, we might want to commit...
       // await query('rollback')
       if (!this.testing) {
+        output.forEach(o => console.log(o))
         await this.test()
         await this.query('commit')
       }
 
     } catch (e) {
       if (!this.testing) {
-        console.log(`Rolling back all of it since we have an error`)
+        // console.log(`Rolling back all of it since we have an error`)
         await this.query('rollback')
       }
 
-      console.log(e.message)
+      output.forEach(o => console.log(o))
+      // console.log(e.message)
       throw e
     }
   }
@@ -195,7 +198,7 @@ export class MutationRunner {
     // We will now try to remove them one by one and see if they hold
     this.testing = true
 
-    console.log(`\n--- now testing mutations---\n`)
+    // console.log(`\n--- now testing mutations---\n`)
     var errored = false
     for (var m of registry.mutations) {
       // Not testing the basic dmut mutation
@@ -206,7 +209,7 @@ export class MutationRunner {
         // are up. As such, we want to track the down mutations that were applied
         // to reapply them, and them only.
 
-        console.log(ch.greenBright(`  ==> Testing removal of ${m.identifier || m.hash}`))
+        // console.log(ch.greenBright(`  ==> Testing removal of ${m.identifier || m.hash}`))
         await this.query('savepoint "dmut-testing"')
 
         // Try removing this mutation from our local list
