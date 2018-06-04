@@ -46,7 +46,7 @@ function mkregex(reg: RegExp) {
 export const auto_makers = new Map<RegExp, ((...a: string[]) => string)>()
 
 auto_makers.set(
-  mkregex(/:create (role|table|extension|schema|view|index) (:id)/),
+  mkregex(/:create (role|table|extension|schema|(?:materialized\s+)?view|index) (:id)/),
   (type, id) => {
     return `drop ${type} ${id}`
   }
