@@ -133,6 +133,7 @@ export class MutationRunner {
     // This will be used to avoid upping a local mutation.
     // const still_there = this.mkdct(staying)
     const still_there = new Set<string>(staying.map(m => m.hash.trim()))
+    var touched = false
 
     if (!this.testing) await this.query('begin')
     try {
@@ -142,6 +143,7 @@ export class MutationRunner {
         //   throw new Error(`cannot undo a static mutation, yet ${rm.hash} is no longer here`)
 
         // LOG that we're destroying a mutation ?
+        touched = true
         output.push(`  « ${ch.redBright(rm.identifier || rm.hash)}`)
         for (var undo of rm.undo) {
           await this.query(undo)
@@ -156,6 +158,7 @@ export class MutationRunner {
       for (var t of to_apply) {
         if (still_there.has(t.hash)) continue
         output.push(`  » ${ch.greenBright(t.identifier || t.hash)}`)
+        touched = true
 
         for (var stmt of t.statements) {
           // console.log(stmt)
@@ -170,11 +173,14 @@ export class MutationRunner {
 
       // Once we're done, we might want to commit...
       // await query('rollback')
-      if (!this.testing) {
+      if (!this.testing && touched) {
         output.forEach(o => console.log(o))
         await this.test()
         await this.query('commit')
       }
+
+      if (!touched)
+        await this.query('rollback')
 
     } catch (e) {
       if (!this.testing) {
