@@ -1,11 +1,12 @@
 {
     "compilerOptions": {
-        "target": "es6",
+        "target": "es5",
         "module": "commonjs",
         "moduleResolution": "node",
         "declaration": true,
         "sourceMap": true,
         "strict": true,
+        "downlevelIteration": true,
         "strictNullChecks": true,
         "noUnusedLocals": true,
         "noStrictGenericChecks": true,

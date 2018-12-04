@@ -74,7 +74,7 @@ export class MutationRunner<M extends Mutation = Mutation> {
 
       const seen = new Set<string>()
 
-      function add(m: MutationRow) {
+      const add = (m: MutationRow) => {
         if (seen.has(m.hash)) return
 
         for (var c of m.parents)

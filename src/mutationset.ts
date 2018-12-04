@@ -53,7 +53,7 @@ export class MutationRegistry<M extends Mutation = Mutation> {
   }
 
   get create() {
-    return this._add(new this.ctor())
+    return this._add(new (this.ctor)())
   }
 
   get static() {
