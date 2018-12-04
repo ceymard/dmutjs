@@ -34,30 +34,30 @@ export const dmut_mutation = new Mutation().setStatic()
 /**
  * Holder of local mutations
  */
-export class MutationRegistry {
+export class MutationRegistry<M extends Mutation = Mutation> {
 
 
-  constructor(public mutations = [] as Mutation[]) {
+  constructor(public mutations = [] as M[], public ctor = Mutation as new () => M) {
     if (mutations.length === 0)
-      mutations.push(dmut_mutation)
+      mutations.push(dmut_mutation as M)
   }
 
-  protected _add(m: Mutation) {
+  protected _add(m: M) {
     this.mutations.push(m)
     return m
   }
 
   depends(...ms: Mutation[]) {
-    return this._add(new Mutation()
+    return this._add(new this.ctor()
       .depends(...ms))
   }
 
   get create() {
-    return this._add(new Mutation())
+    return this._add(new this.ctor())
   }
 
   get static() {
-    return this._add(new Mutation()
+    return this._add(new this.ctor()
       .setStatic())
   }
 

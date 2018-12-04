@@ -178,22 +178,22 @@ export class Mutation {
     const stmt = tpljoin(str, a)
     this.statements.push(stmt)
     // Devrait renvoyer down.
-    return this
+    return this as this
   }
 
   comment(str: TemplateStringsArray, ...a: any[]) {
     this.statements.push('comment ' + tpljoin(str, a))
-    return this
+    return this as this
   }
 
-  down(str: TemplateStringsArray, ...a: any[]) {
+  down<M extends this>(str: TemplateStringsArray, ...a: any[]) {
     const stmt = tpljoin(str, a)
     this.undo.unshift(stmt)
     const _t = this
     return {
-      up(str: TemplateStringsArray, ...a: any[]): Mutation {
+      up(str: TemplateStringsArray, ...a: any[]): M {
         _t.up(str, ...a)
-        return _t
+        return _t as M
       }
     }
   }

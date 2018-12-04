@@ -26,13 +26,13 @@ export interface MutationRow {
 }
 
 
-export class MutationRunner {
+export class MutationRunner<M extends Mutation = Mutation> {
 
   testing = false
 
   constructor(
     public client: Client,
-    public registry: MutationRegistry
+    public registry: MutationRegistry<M>
   ) {
 
   }
@@ -106,7 +106,7 @@ export class MutationRunner {
   /**
    * Perform the mutations
    */
-  async mutate(registry = this.registry) {
+  async mutate(registry = this.registry as MutationRegistry<Mutation>) {
 
     const dbmut = await this.fetchRemoteMutations()
     // const dbdct = this.mkdct(dbmut)
