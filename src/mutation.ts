@@ -208,25 +208,28 @@ export class Mutation {
     }
   }
 
-  fn(fn: Function, ...types: string[]) {
+  fn(name: string, fn: Function, ...types: string[]) {
 
-    const re_js = /^\s*function\s+\w+\s*\(([^\)]*)\)\s*\{([^]*)\}\s*/igm
+    const re_js = /^\s*function(?=\s+\w+)?\s*\(([^\)]*)\)\s*\{([^]*)\}\s*/igm
 
     const src = fn.toString()
+    // console.log(src)
     const match = re_js.exec(src)
     if (!match) throw new Error(`Unable to parse function !`)
 
-    const args = match[1].split(',').map((a, i) => `${a.trim()} ${types[i]}`.replace(/...(\w+) (\w+)/g, (all, arg, type) => {
+    const args = match[1] ? match[1]
+      .split(',').map((a, i) => `${a.trim()} ${types[i]}`.replace(/...(\w+) (\w+)/g, (all, arg, type) => {
       return `variadic ${arg} ${type}[]`
-    }))
+    })) : []
+
     if (args.length !== types.length - 1)
-      throw new Error(`You muse define the same number of types for your function arguments as well as the return type.`)
+      throw new Error(`You must define the same number of types for your function arguments as well as the return type.`)
     const body = match[2].trim()
 
-    const stmt = `create function ${fn.name}(${args}) returns ${types[types.length - 1]} as $$
+    const stmt = `create function ${name}(${args}) returns ${types[types.length - 1]} as $$
       ${body}
     $$ language plv8`
-    const undo = `drop function ${fn.name}(${args})`
+    const undo = `drop function ${name}(${args})`
     this.statements.push(stmt)
     this.undo.unshift(undo)
     return this
