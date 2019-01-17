@@ -30,7 +30,7 @@ function sep_by(pattern: RegExp, sep: RegExp) {
 }
 
 const patterns: {[name: string]: RegExp} = {
-  id: sep_by(/\w+|"[^"]+"|`[^`]+`|\[[^\]]\]/, /\s*\.\s*/),
+  id: sep_by(/[@\w]+|"[^"]+"|`[^`]+`|\[[^\]]\]/, /\s*\.\s*/),
   create: /create\s*(?:\s+\w+)*?/
 }
 
