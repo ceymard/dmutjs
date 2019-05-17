@@ -111,22 +111,30 @@ export class MutationRunner {
 
     const dbmut = await this.fetchRemoteMutations()
     // const dbdct = this.mkdct(dbmut)
-    const local = new Set<string>(mutations.map(m => m.hash)) // a dictionary of local mutations
+    const local_dct = {} as {[hash: string]: Mutation}
+    for (let mut of mutations) {
+      local_dct[mut.hash] = mut
+    }
 
     // These mutations will have to go
     const gone = [] as MutationRow[]
 
     // But these will stay.
     const staying = [] as MutationRow[]
+    const local_staying = [] as Mutation[]
 
     for (var d of dbmut) {
-      if (!local.has(d.hash)) {
+      if (!local_dct[d.hash]) {
         gone.push(d)
       } else {
         staying.push(d)
+        local_staying.push(local_dct[d.hash])
       }
     }
     const output = [] as string[]
+
+    for (let stay of local_staying)
+      output.push(`  ${stay.hash_lock ? '♖' : '≋'} ${ch.gray(stay.hash.slice(0, 8))} ${ch.yellow(stay.identifier || stay.hash)}`)
 
     // We have to de-apply mutations in reverse order
     gone.reverse()
@@ -135,7 +143,6 @@ export class MutationRunner {
     // const still_there = this.mkdct(staying)
     const still_there = new Set<string>(staying.map(m => m.hash.trim()))
     var touched = false
-
     if (!this.testing) await this.query('begin')
     try {
 
@@ -145,7 +152,7 @@ export class MutationRunner {
 
         // LOG that we're destroying a mutation ?
         touched = true
-        output.push(`  « ${ch.redBright(rm.identifier || rm.hash)}`)
+        output.push(`  « ${ch.gray(rm.hash.slice(0, 8))} ${ch.redBright(rm.identifier || rm.hash)}`)
         for (var undo of rm.undo) {
           await this.query(undo)
         }
@@ -175,9 +182,12 @@ export class MutationRunner {
       // Once we're done, we might want to commit...
       // await query('rollback')
       if (!this.testing && touched) {
-        output.forEach(o => console.log(o))
         await this.test()
         await this.query('commit')
+      }
+
+      if (!this.testing) {
+        output.forEach(o => console.log(o))
       }
 
       if (!touched)

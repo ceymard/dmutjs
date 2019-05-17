@@ -63,7 +63,7 @@ auto_makers.set(
 )
 
 auto_makers.set(
-  mkregex(/grant ([^]+) on ((?:\w+ )?:id) to (:id)/),
+  mkregex(/grant\s+([^]+)\s+on\s+([^]+)\s+to\s+(:id)/),
   (rights, what, to) => {
     return `revoke ${rights} on ${what} from ${to}`
   }
@@ -116,10 +116,13 @@ export class Mutation {
   parents: Mutation[] = []
   statements: string[] = []
   undo: string[] = []
-  locked: boolean = false
 
-  setStatic() {
-    this.locked = true
+  hash_lock: string = ''
+
+  lock(lock: string) {
+    for (var p of this.parents)
+      if (!p.hash_lock) throw new Error(`Mutation ${this.identifier} has an unlocked parent`)
+    this.hash_lock = lock
     return this
   }
 
@@ -196,8 +199,8 @@ export class Mutation {
   depends(...ms: Mutation[]) {
     // Add parents and children.
     for (var m of ms) {
-      if (this.locked && !m.locked)
-        throw new Error(`A static mutation can't depend on a non-static one.`)
+      if (this.hash_lock && !m.hash_lock)
+        throw new Error(`A locked mutation can't depend on an unlocked one.`)
 
       m.children.push(this)
       this.parents.push(m)
@@ -304,6 +307,7 @@ CREATE TABLE ${tbl} (
   "parents" TEXT[],
   "date_applied" TIMESTAMP DEFAULT NOW()
 )`
+.lock(`a8a45f43`)
 
 
 export const DmutComments = DmutBaseMutation.derive(`Dmut Comments`)
