@@ -1,7 +1,9 @@
 
 import {Client, QueryResult} from 'pg'
-import {Mutation} from './mutation'
-import {dmut_mutation, MutationRegistry, tbl} from './mutationset'
+import {Mutation, DmutBaseMutation} from './mutation'
+
+const tbl = `"dmut"."mutations"`
+
 
 import chalk from 'chalk'
 const ch = chalk.constructor({level: 3})
@@ -18,7 +20,6 @@ export interface MutationRow {
   statements: string[]
   undo: string[]
   parents: string[]
-  static: boolean
   date_applied: Date
 
   // True if this mutation should be kept
@@ -26,13 +27,13 @@ export interface MutationRow {
 }
 
 
-export class MutationRunner<M extends Mutation = Mutation> {
+export class MutationRunner {
 
   testing = false
 
   constructor(
     public client: Client,
-    public registry: MutationRegistry<M>
+    public base_mutation: Mutation
   ) {
 
   }
@@ -106,11 +107,11 @@ export class MutationRunner<M extends Mutation = Mutation> {
   /**
    * Perform the mutations
    */
-  async mutate(registry = this.registry as MutationRegistry<Mutation>) {
+  async mutate(mutations: Mutation[] = this.base_mutation.allMutations()) {
 
     const dbmut = await this.fetchRemoteMutations()
     // const dbdct = this.mkdct(dbmut)
-    const local = new Set<string>(registry.mutations.map(m => m.hash)) // a dictionary of local mutations
+    const local = new Set<string>(mutations.map(m => m.hash)) // a dictionary of local mutations
 
     // These mutations will have to go
     const gone = [] as MutationRow[]
@@ -149,15 +150,15 @@ export class MutationRunner<M extends Mutation = Mutation> {
           await this.query(undo)
         }
 
-        await this.query(`delete from ${tbl} where hash = $1`, [rm.hash])
+        await this.query(/* sql */`delete from ${tbl} where hash = $1`, [rm.hash])
       }
 
       // Local is always in the good order, since children cannot be declared
       // before their parents.
-      const to_apply: Mutation[] = registry.mutations
+      const to_apply: Mutation[] = mutations
       for (var t of to_apply) {
         if (still_there.has(t.hash)) continue
-        output.push(`  » ${ch.greenBright(t.identifier || t.hash)}`)
+        output.push(`  » ${ch.gray(t.hash.slice(0, 8))} ${ch.greenBright(t.identifier || t.hash)}`)
         touched = true
 
         for (var stmt of t.statements) {
@@ -165,9 +166,9 @@ export class MutationRunner<M extends Mutation = Mutation> {
           await this.query(stmt)
         }
 
-        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, parents, static)
-          values($1, $2, $3, $4, $5, $6)`,
-          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.parents).map(c => c.hash), t.static]
+        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, parents)
+          values($1, $2, $3, $4, $5)`,
+          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.parents).map(c => c.hash)]
         )
       }
 
@@ -197,18 +198,18 @@ export class MutationRunner<M extends Mutation = Mutation> {
 
   /**
    *
-   * @param registry
+   * @param base_mutation
    */
-  async test(registry = this.registry) {
+  async test(base_mutation = this.base_mutation) {
     // At this point, we already mutated all of our local mutations.
     // We will now try to remove them one by one and see if they hold
     this.testing = true
 
     // console.log(`\n--- now testing mutations---\n`)
     var errored = false
-    for (var m of registry.mutations) {
+    for (var m of base_mutation.allMutations()) {
       // Not testing the basic dmut mutation
-      if (m.hash === dmut_mutation.hash) continue
+      if (m.hash === DmutBaseMutation.hash) continue
 
       try {
         // Whenever we get to this point, we can consider that all local mutations
@@ -219,13 +220,13 @@ export class MutationRunner<M extends Mutation = Mutation> {
         await this.query('savepoint "dmut-testing"')
 
         // Try removing this mutation from our local list
-        const local = registry.without([m.hash])
+        const local = base_mutation.allMutations([m.hash])
 
         // First mutate while having removed the mutation
         await this.mutate(local)
 
         // Then re-mutate with all of them
-        await this.mutate(registry)
+        await this.mutate(base_mutation.allMutations())
 
       } catch(e) {
         // console.log('ERRORS ERRORS')

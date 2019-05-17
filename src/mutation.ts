@@ -116,11 +116,48 @@ export class Mutation {
   parents: Mutation[] = []
   statements: string[] = []
   undo: string[] = []
-  static: boolean = false
+  locked: boolean = false
 
   setStatic() {
-    this.static = true
+    this.locked = true
     return this
+  }
+
+  allMutations(exclude_hashes: string[] = []): Mutation[] {
+    const s = new Set<Mutation>()
+    const dct = {} as {[hash: string]: Mutation}
+
+    function add(m: Mutation) {
+      if (s.has(m))
+        return
+
+      for (var p of m.parents)
+        add(p)
+
+      dct[m.hash] = m
+      s.add(m)
+
+      for (var c of m.children)
+        add(c)
+    }
+
+
+    function remove(hash: string) {
+      const m = dct[hash]
+      if (!s.has(m))
+        return
+
+      s.delete(m)
+      for (var c of m.children)
+        remove(c.hash)
+    }
+
+    add(this)
+    for (var excl of exclude_hashes) {
+      remove(excl)
+    }
+
+    return Array.from(s)
   }
 
   @memoize
@@ -141,6 +178,7 @@ export class Mutation {
       hash.update(replaced)
     }
 
+    // we include the parents in this mutation's hash
     for (var p of this.parents) {
       hash.update(p.hash)
     }
@@ -148,10 +186,17 @@ export class Mutation {
     return hash.digest('hex')
   }
 
+  derive(name: string, ...ms: Mutation[]): this {
+    var n = new (this.constructor as any)() as this
+    n.identifier = this.identifier ? `${this.identifier} :: ${name}` : name
+    n = n.depends(this, ...ms)
+    return n
+  }
+
   depends(...ms: Mutation[]) {
     // Add parents and children.
     for (var m of ms) {
-      if (this.static && !m.static)
+      if (this.locked && !m.locked)
         throw new Error(`A static mutation can't depend on a non-static one.`)
 
       m.children.push(this)
@@ -161,8 +206,8 @@ export class Mutation {
     return this
   }
 
-  name(str: TemplateStringsArray, ...a: any[]) {
-    this.identifier = tpljoin(str, a)
+  name(str: string) {
+    this.identifier = str
     return this
   }
 
@@ -236,3 +281,35 @@ export class Mutation {
   }
 
 }
+
+
+export const schema = `"dmut"`
+export const table = `"mutations"`
+export const tbl = `${schema}.${table}`
+
+
+/**
+ * Dmut mutations are always the first, since they create the table the mutations
+ * will be stored in.
+ */
+export const DmutBaseMutation = new Mutation()
+.name(`Dmut Base Table`)
+.auto `CREATE SCHEMA ${schema}`
+.auto /* sql */ `
+CREATE TABLE ${tbl} (
+  "hash" TEXT PRIMARY KEY,
+  "identifier" TEXT,
+  "statements" TEXT[],
+  "undo" TEXT[],
+  "parents" TEXT[],
+  "date_applied" TIMESTAMP DEFAULT NOW()
+)`
+
+
+export const DmutComments = DmutBaseMutation.derive(`Dmut Comments`)
+.comment `on schema ${schema} is 'The schema holding informations about mutations.'`
+.comment `on column ${tbl}."hash" is 'A unique hash identifying the mutation'`
+.comment `on column ${tbl}."statements" is 'The list of statements that were applied in this mutation'`
+.comment `on column ${tbl}."undo" is 'The statements that would be run if the mutation was abandoned'`
+.comment `on column ${tbl}."parents" is 'The list of hashes of mutations that this one depends on'`
+.comment `on column ${tbl}."date_applied" is 'The timestamp at which this mutation was applied to the database'`
