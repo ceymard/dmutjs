@@ -135,6 +135,7 @@ export class MutationRunner {
     }
     const output = [] as string[]
 
+    local_staying.sort((a, b) => a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0)
     for (let stay of local_staying)
       output.push(`  ${stay.hash_lock ? '♖' : '≋'} ${ch.gray(stay.hash.slice(0, 8))} ${ch.yellow(stay.identifier || stay.hash)}`)
 
