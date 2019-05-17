@@ -114,6 +114,8 @@ export class MutationRunner {
     const local_dct = {} as {[hash: string]: Mutation}
     for (let mut of mutations) {
       local_dct[mut.hash] = mut
+      if (mut.hash_lock && !mut.hash.startsWith(mut.hash_lock))
+        throw new Error(`Mutation ${mut.hash_lock} | ${mut.identifier} is locked but has changed, fix it`)
     }
 
     // These mutations will have to go
