@@ -1,6 +1,6 @@
 {
   "name": "dmut",
-  "version": "0.4.6",
+  "version": "0.5.0",
   "repository": "https://github.com/ceymard/dmut",
   "description": "A migration utility for PostgreSQL designed for schema and code changes inside your database.",
   "license": "MIT",
