@@ -194,21 +194,13 @@ export class Mutation {
   derive(identifier: string, ...ms: Mutation[]): this {
     var n = new (this.constructor as any)() as this
     n.identifier = this.identifier ? `${this.identifier} :: ${identifier}` : identifier
-    n = n.depends(this, ...ms)
-    return n
-  }
 
-  depends(...ms: Mutation[]) {
-    // Add parents and children.
     for (var m of ms) {
-      if (this.hash_lock && !m.hash_lock)
-        throw new Error(`A locked mutation can't depend on an unlocked one.`)
-
       m.children.push(this)
       this.parents.push(m)
     }
 
-    return this
+    return n
   }
 
   auto(str: TemplateStringsArray, ...a: any[]) {
@@ -292,8 +284,7 @@ export const tbl = `${schema}.${table}`
  * Dmut mutations are always the first, since they create the table the mutations
  * will be stored in.
  */
-export const DmutBaseMutation = new Mutation()
-.name(`Dmut Base Table`)
+export const DmutBaseMutation = new Mutation(`Dmut Base Table and Schema`)
 .auto `CREATE SCHEMA ${schema}`
 .auto /* sql */ `
 CREATE TABLE ${tbl} (

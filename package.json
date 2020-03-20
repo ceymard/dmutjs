@@ -8,13 +8,14 @@
     "dmut": "./lib/cli.js"
   },
   "scripts": {
-    "build": "wtsc",
-    "watch": "wtsc -w",
+    "build": "tsc | wtsc",
+    "watch": "tsc | wtsc -w",
     "prepublish": "npm run build"
   },
   "main": "./lib/dmut.js",
   "types": "./lib/dmut.d.ts",
   "dependencies": {
+    "@types/pg": "^7.14.3",
     "chalk": "^2.3.0",
     "pg": "^7.4.1"
   },
