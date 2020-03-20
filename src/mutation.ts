@@ -111,13 +111,15 @@ export function tpljoin(s: TemplateStringsArray, a: any[]) {
 
 export class Mutation {
 
-  identifier: string = ''
+  // identifier: string = ''
   children: Mutation[] = []
   parents: Mutation[] = []
   statements: string[] = []
   undo: string[] = []
 
   hash_lock: string = ''
+
+  constructor(public identifier: string) { }
 
   lock(lock: string) {
     for (var p of this.parents)
@@ -189,9 +191,9 @@ export class Mutation {
     return hash.digest('hex')
   }
 
-  derive(name: string, ...ms: Mutation[]): this {
+  derive(identifier: string, ...ms: Mutation[]): this {
     var n = new (this.constructor as any)() as this
-    n.identifier = this.identifier ? `${this.identifier} :: ${name}` : name
+    n.identifier = this.identifier ? `${this.identifier} :: ${identifier}` : identifier
     n = n.depends(this, ...ms)
     return n
   }
@@ -206,11 +208,6 @@ export class Mutation {
       this.parents.push(m)
     }
 
-    return this
-  }
-
-  name(str: string) {
-    this.identifier = str
     return this
   }
 
