@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc | wtsc",
-    "watch": "tsc | wtsc -w",
+    "watch": "tsc -w | wtsc",
     "prepublish": "npm run build"
   },
   "main": "./lib/dmut.js",

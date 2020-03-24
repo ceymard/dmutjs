@@ -1,20 +1,19 @@
 {
-    "compilerOptions": {
-        "target": "es5",
-        "module": "commonjs",
-        "moduleResolution": "node",
-        "declaration": true,
-        "sourceMap": true,
-        "strict": true,
-        "downlevelIteration": true,
-        "strictNullChecks": true,
-        "noUnusedLocals": true,
-        "noStrictGenericChecks": true,
-        "experimentalDecorators": true,
-	"outDir": "lib",
-	"lib": ["es6"],
-  "types": ["node"]
-    },
-    "include": ["src/cli.ts", "src/dmut.ts"]
-
+  "compilerOptions": {
+    "target": "es6",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "declaration": true,
+    "sourceMap": true,
+    "strict": true,
+    "downlevelIteration": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noStrictGenericChecks": true,
+    "experimentalDecorators": true,
+    "outDir": "lib",
+    "rootDir": "./src",
+    "lib": ["es6"],
+    "types": ["node"]
+  },
 }

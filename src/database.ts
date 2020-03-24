@@ -33,7 +33,7 @@ export class MutationRunner {
 
   constructor(
     public client: Client,
-    public base_mutation: Mutation
+    // public base_mutation: Mutation
   ) {
 
   }
@@ -107,7 +107,18 @@ export class MutationRunner {
   /**
    * Perform the mutations
    */
-  async mutate(mutations: Mutation[] = this.base_mutation.allMutations()) {
+  async mutate(_mutations: Set<Mutation>) {
+
+    // Add the mutations in the order they need to run.
+    function _add(m: Mutation) {
+      if (mutations.has(m)) return // already handled.
+      for (var p of m.parents) {
+        _add(p)
+      }
+      mutations.add(m)
+    }
+    var mutations = new Set<Mutation>()
+    for (let _m of _mutations) _add(_m)
 
     const dbmut = await this.fetchRemoteMutations()
     // const dbdct = this.mkdct(dbmut)
@@ -115,7 +126,7 @@ export class MutationRunner {
     for (let mut of mutations) {
       local_dct[mut.hash] = mut
       if (mut.hash_lock && !mut.hash.startsWith(mut.hash_lock))
-        throw new Error(`Mutation ${mut.hash_lock} | ${mut.identifier} is locked but has changed, fix it`)
+        throw new Error(`Mutation locked on ${mut.hash_lock} | ${mut.identifier} is locked but has changed (current hash is ${mut.hash}), cannot proceed`)
     }
 
     // These mutations will have to go
@@ -156,6 +167,7 @@ export class MutationRunner {
         // LOG that we're destroying a mutation ?
         touched = true
         output.push(`  « ${ch.gray(rm.hash.slice(0, 8))} ${ch.redBright(rm.identifier || rm.hash)}`)
+
         for (var undo of rm.undo) {
           await this.query(undo)
         }
@@ -165,10 +177,10 @@ export class MutationRunner {
 
       // Local is always in the good order, since children cannot be declared
       // before their parents.
-      const to_apply: Mutation[] = mutations
+      const to_apply = mutations
       for (var t of to_apply) {
         if (still_there.has(t.hash)) continue
-        output.push(`  » ${ch.gray(t.hash.slice(0, 8))} ${ch.greenBright(t.identifier || t.hash)}`)
+        output.push(`  » ${ch.gray(t.hash.slice(0, 8))} ${ch.greenBright(t.identifier || t.hash)}${t.parents.size ? ' :: ' + ch.gray([...t.parents].map(p => p.identifier).join(' | ')) : ''}`)
         touched = true
 
         for (var stmt of t.statements) {
@@ -176,16 +188,16 @@ export class MutationRunner {
           await this.query(stmt)
         }
 
-        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, parents)
-          values($1, $2, $3, $4, $5)`,
-          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.parents).map(c => c.hash)]
+        await this.query(`insert into ${tbl}(identifier, hash, statements, undo, parents, namespace)
+          values($1, $2, $3, $4, $5, $6)`,
+          [t.identifier, t.hash, t.statements, t.undo, Array.from(t.parents).map(c => c.hash), null]
         )
       }
 
       // Once we're done, we might want to commit...
       // await query('rollback')
       if (!this.testing && touched) {
-        await this.test()
+        await this.test(mutations)
         await this.query('commit')
       }
 
@@ -208,19 +220,18 @@ export class MutationRunner {
     }
   }
 
-
   /**
    *
    * @param base_mutation
    */
-  async test(base_mutation = this.base_mutation) {
+  async test(mutations: Set<Mutation>) {
     // At this point, we already mutated all of our local mutations.
     // We will now try to remove them one by one and see if they hold
     this.testing = true
 
     // console.log(`\n--- now testing mutations---\n`)
     var errored = false
-    for (var m of base_mutation.allMutations()) {
+    for (var m of mutations) {
       // Not testing the basic dmut mutation
       if (m.hash === DmutBaseMutation.hash) continue
 
@@ -233,13 +244,13 @@ export class MutationRunner {
         await this.query('savepoint "dmut-testing"')
 
         // Try removing this mutation from our local list
-        const local = base_mutation.allMutations([m.hash])
+        const local = Mutation.mutationsWithout(mutations, new Set([m]))
 
         // First mutate while having removed the mutation
         await this.mutate(local)
 
         // Then re-mutate with all of them
-        await this.mutate(base_mutation.allMutations())
+        await this.mutate(mutations)
 
       } catch(e) {
         // console.log('ERRORS ERRORS')

@@ -97,7 +97,9 @@ auto_makers.set(
   }
 )
 
-export function tpljoin(s: TemplateStringsArray, a: any[]) {
+var isTemplateString = (s: TemplateStringsArray | string): s is TemplateStringsArray => Array.isArray(s)
+export function tpljoin(s: TemplateStringsArray | string, a: any[]) {
+  if (!isTemplateString(s)) return s
   const res = [] as string[]
   // console.log(s, a)
   for (var i = 0; i < s.length - 1; i++) {
@@ -112,8 +114,8 @@ export function tpljoin(s: TemplateStringsArray, a: any[]) {
 export class Mutation {
 
   // identifier: string = ''
-  children: Mutation[] = []
-  parents: Mutation[] = []
+  children = new Set<Mutation>()
+  parents = new Set<Mutation>()
   statements: string[] = []
   undo: string[] = []
 
@@ -121,48 +123,28 @@ export class Mutation {
 
   constructor(public identifier: string) { }
 
+  static mutationsWithout(mutations: Set<Mutation>, removal: Set<Mutation>) {
+    var new_mutations = new Set<Mutation>(mutations)
+
+    function remove(m: Mutation) {
+      new_mutations.delete(m)
+      for (var c of m.children) {
+        remove(c)
+      }
+    }
+
+    for (var m of mutations) {
+      if (removal.has(m)) remove(m)
+    }
+
+    return new_mutations
+  }
+
   lock(lock: string) {
     for (var p of this.parents)
       if (!p.hash_lock) throw new Error(`Mutation ${this.identifier} has an unlocked parent`)
     this.hash_lock = lock
     return this
-  }
-
-  allMutations(exclude_hashes: string[] = []): Mutation[] {
-    const s = new Set<Mutation>()
-    const dct = {} as {[hash: string]: Mutation}
-
-    function add(m: Mutation) {
-      if (s.has(m))
-        return
-
-      for (var p of m.parents)
-        add(p)
-
-      dct[m.hash] = m
-      s.add(m)
-
-      for (var c of m.children)
-        add(c)
-    }
-
-
-    function remove(hash: string) {
-      const m = dct[hash]
-      if (!s.has(m))
-        return
-
-      s.delete(m)
-      for (var c of m.children)
-        remove(c.hash)
-    }
-
-    add(this)
-    for (var excl of exclude_hashes) {
-      remove(excl)
-    }
-
-    return Array.from(s)
   }
 
   @memoize
@@ -191,19 +173,20 @@ export class Mutation {
     return hash.digest('hex')
   }
 
-  derive(identifier: string, ...ms: Mutation[]): this {
-    var n = new (this.constructor as any)() as this
-    n.identifier = this.identifier ? `${this.identifier} :: ${identifier}` : identifier
-
-    for (var m of ms) {
-      m.children.push(this)
-      this.parents.push(m)
-    }
-
+  static derive<M extends Mutation>(this: {new (id: string): M}, identifier: string, ...parents: Mutation[]): M {
+    var n = new this(identifier)
+    n.depends(parents)
     return n
   }
 
-  auto(str: TemplateStringsArray, ...a: any[]) {
+  depends(parents: Mutation[]) {
+    for (var m of parents) {
+      m.children.add(this)
+      this.parents.add(m)
+    }
+  }
+
+  auto(str: TemplateStringsArray | string, ...a: any[]) {
     const stmt = tpljoin(str, a)
 
     for (var [re, action] of auto_makers.entries()) {
@@ -218,58 +201,31 @@ export class Mutation {
       return this
 
     }
-    throw new Error(`Unrecognized statement for auto(): ${stmt}`)
+    throw new Error(`Unrecognized statement for auto(): "${stmt}"`)
   }
 
-  protected up(str: TemplateStringsArray, ...a: any[]) {
+  up(str: TemplateStringsArray | string, ...a: any[]) {
     const stmt = tpljoin(str, a)
     this.statements.push(stmt)
     // Devrait renvoyer down.
     return this as this
   }
 
-  comment(str: TemplateStringsArray, ...a: any[]) {
+  comment(str: TemplateStringsArray | string, ...a: any[]) {
     this.statements.push('comment ' + tpljoin(str, a))
     return this as this
   }
 
-  down<M extends this>(str: TemplateStringsArray, ...a: any[]) {
+  down<M extends this>(str: TemplateStringsArray | string, ...a: any[]) {
     const stmt = tpljoin(str, a)
     this.undo.unshift(stmt)
     const _t = this
     return {
-      up(str: TemplateStringsArray, ...a: any[]): M {
+      up(str: TemplateStringsArray | string, ...a: any[]): M {
         _t.up(str, ...a)
         return _t as M
       }
     }
-  }
-
-  fn(name: string, fn: Function, ...types: string[]) {
-
-    const re_js = /^\s*function(?=\s+\w+)?\s*\(([^\)]*)\)\s*\{([^]*)\}\s*/igm
-
-    const src = fn.toString()
-    // console.log(src)
-    const match = re_js.exec(src)
-    if (!match) throw new Error(`Unable to parse function !`)
-
-    const args = match[1] ? match[1]
-      .split(',').map((a, i) => `${a.trim()} ${types[i]}`.replace(/...(\w+) (\w+)/g, (all, arg, type) => {
-      return `variadic ${arg} ${type}[]`
-    })) : []
-
-    if (args.length !== types.length - 1)
-      throw new Error(`You must define the same number of types for your function arguments as well as the return type.`)
-    const body = match[2].trim()
-
-    const stmt = `create function ${name}(${args}) returns ${types[types.length - 1]} as $$
-      ${body}
-    $$ language plv8`
-    const undo = `drop function ${name}(${args})`
-    this.statements.push(stmt)
-    this.undo.unshift(undo)
-    return this
   }
 
 }
@@ -288,19 +244,21 @@ export const DmutBaseMutation = new Mutation(`Dmut Base Table and Schema`)
 .auto `CREATE SCHEMA ${schema}`
 .auto /* sql */ `
 CREATE TABLE ${tbl} (
-  "hash" TEXT PRIMARY KEY,
-  "identifier" TEXT,
-  "statements" TEXT[],
-  "undo" TEXT[],
-  "parents" TEXT[],
+  "hash" TEXT PRIMARY KEY NOT NULL,
+  "namespace" TEXT,
+  "identifier" TEXT NOT NULL,
+  "statements" TEXT[] NOT NULL,
+  "undo" TEXT[] NOT NULL,
+  "parents" TEXT[] NOT NULL,
   "date_applied" TIMESTAMP DEFAULT NOW()
 )`
-.lock(`a8a45f43`)
+.lock(`afcd3e4f41042`)
 
 
-export const DmutComments = DmutBaseMutation.derive(`Dmut Comments`)
+export const DmutComments = Mutation.derive(`Dmut Comments`, DmutBaseMutation)
 .comment `on schema ${schema} is 'The schema holding informations about mutations.'`
 .comment `on column ${tbl}."hash" is 'A unique hash identifying the mutation'`
+.comment `on column ${tbl}."namespace" is 'A namespace for this mutation'`
 .comment `on column ${tbl}."statements" is 'The list of statements that were applied in this mutation'`
 .comment `on column ${tbl}."undo" is 'The statements that would be run if the mutation was abandoned'`
 .comment `on column ${tbl}."parents" is 'The list of hashes of mutations that this one depends on'`
