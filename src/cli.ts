@@ -1,125 +1,187 @@
+#!/usr/bin/node --enable-source-maps
 import * as fs from 'fs'
 import * as pg from 'pg'
 import { Mutation, DmutBaseMutation, DmutComments } from './mutation'
 import { MutationRunner } from './database'
+import ch from 'chalk'
 // import * as util from 'util'
-import { Seq, R, Either, Parser, NoMatch, Res, escape } from 'parseur'
+
+import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt } from 'parseur'
 
 const args = process.argv.slice(3)
 const files = new Map<string, string>()
 
 
-const ID = R(/[$\w_]+/).map(r => r[0])
+export class DmutContext extends Context {
+  current_marker?: string
+}
 
-const SQLID_BASE = R(/"(""|[^"])*"|[@$\w_]+|\[[^\]]+\]|`(``|[^`])*`/).map(r => r[0])
-const SQLID = Seq({
-  id:     SQLID_BASE,
-  rest:   Seq({dot: '.', id: SQLID_BASE }).map(r => r.dot + r.id).Repeat()
-}).map(r => [r.id, ...r.rest].join(''))// .tap(((c, inp, pos) => console.log(c, pos)))
+var P!: DmutParser['P']
+var A!: DmutParser['A']
+export class DmutParser extends Parseur<DmutContext> {
 
-const down = <T>(fn: (r: T) => string) => (r: T, input: string, pos: number, skip: RegExp | undefined, start: number) => [
-  { kind: 'down', contents: fn(r) },
-  { kind: 'up', contents: input.slice(start, pos).trim() }
-]
+  A(tpl: TemplateStringsArray) {
+    var strs = tpl[0].split(/\s+/g).map(str => this.SqlId.then(i => {
+      if (i.toLowerCase() !== str) return NoMatch
+      return i
+    }))
+    return strs.length === 1 ? strs[0] : Seq(...strs).then(s => tpl[0])
+  }
 
-const S = (tpl: TemplateStringsArray) => R(new RegExp(tpl[0].replace(/\s+/g, '\\s+'), 'i'))
+  /* @ts-ignore */
+  private _1 = P = this.P
+  private _2 = A = this.A.bind(this)
 
-// The easily droppable ones, where undoing them is just about dropping their ID.
-const R_Autos = Seq(
-              S`create`,
+  // leftover tokens
+  // ... unused for now but could be used ?
+  leftovers = [
+    '::', ':', '(', ')', '[', ']', '{', '}', '|', '=', '#', '?', '!', '~', '-', '>', '<', '+', '*', '/', '|', '%',
+  ].map(t => this.token(t))
+  NUM = this.token(/\d+/)
+  //
+
+  // ID = this.token(/[$a-zA-Z_]\w+/)
+  SQLID_BASE = this.token(/"(""|[^"])*"|[@$a-zA-Z_][\w$]*|\[[^\]]+\]|`(``|[^`])*`/)
+  STRING = this.token(/'(''|[^'])*'/)
+  WS = this.token(/(\s|--[^\n]*\n?)+/).skip()
+
+  // Id = this.ID.then(i => i.str)
+
+  SqlIdBase = this.SQLID_BASE.then(s => s.str)
+
+  SqlId = Seq({
+    id:     this.SqlIdBase,
+    rest:   Repeat(P`. ${this.SqlIdBase}`.then(r => '.' + r))
+  }).then(r => [r.id, ...r.rest].join(''))
+
+  Until = <R extends Rule<any, any>>(rule: R) => Seq(Repeat(Not(rule)), rule)
+
+  // The easily droppable ones, where undoing them is just about dropping their ID.
+  R_Autos = Seq(
+    A`create`,
+    { type:   Either(
+                Either(
+                  A`table`,
+                  A`index`,
+                  A`role`,
+                  A`extension`,
+                  A`schema`,
+                  A`type`,
+                  A`view`,
+                  A`materialized view`
+                ),
+              ) },
+    { id:     this.SqlId },
+    AnyTokenUntil(P`;`),
+  ).then(down(r => `drop ${r.type} ${r.id};`))
+
+  R_Auto_Grant = Seq(
+        A`grant`,
+    { rights:   AnyTokenUntil(A`on`)
+            .then(r => r.tokens.map(t => t.str).join(' ')) },
+    { obj:      this.SqlId },
+        A`to`,
+    { to:       this.SqlId },
+        AnyTokenUntil(P`;`),
+  ).then(down(r => `revoke ${r.rights} on ${r.obj} from ${r.to};`))
+
+
+  R_Auto_Trigger = Seq(
+      A`create`,
+  { kind:     Either(A`policy`, A`trigger`) },
+  { trigger:  this.SqlId },
+      AnyTokenUntil(A`on`),
+  { table:    this.SqlId },
+      AnyTokenUntil(P`;`),
+  ).then(down(r => `drop ${r.kind} ${r.trigger} on ${r.table}`))
+
+
+  R_Auto_Function = Seq(
+    A`create`, Opt(A`or replace`), A`function`,
     {
-      type:   S`table|index|role|extension|schema|type|(materialized\s+)?view`.map(r => r[0]),
-      id:     SQLID
+      name:   this.SqlId,
+      args:   AnyTokenUntil(P`)`)
+      // args:   /\([^\)]*\)/
     },
-              /[^;]*;/ // this should probably be different.
-  ).map(down(r => `drop ${r.type} ${r.id};`))
-
-const R_Auto_Grant = Seq(
-                S`grant`,
-    { rights:   R(/((?!on)[^])+/i).map(r => r[0]) },
-                S`on`,
-    { obj:      SQLID },
-                S`to`,
-    { to:       SQLID },
-                /[^;]*;/ // this should probably be different.
-  ).map(down(r => `revoke ${r.rights} on ${r.obj} from ${r.to};`))
-
-
-const R_Auto_Trigger = Seq(
-                S`create`,
-    { kind:     S`policy|trigger` },
-    { trigger:  SQLID },
-                /((?!on)[^])*on/i,
-    { table:    SQLID },
-                /[^;]*;/
-  ).map(down(r => `drop ${r.kind} ${r.trigger} on ${r.table}`))
+    AnyTokenUntil(A`as`),
+    // /((?!as)(.|\n))*as\s+/i, // we go until the function definition.
+    Either(
+      // Match a named string
+      Seq(
+        this.SqlIdBase.then((i, ctx) => {
+          ctx.current_marker = i
+          return i
+        }),
+        AnyTokenUntil(this.SqlIdBase.then((i, ctx) => i !== ctx.current_marker ? NoMatch : i)),
+      ),
+      // Or just a regular string.
+      this.STRING,
+    ),
+    AnyTokenUntil(P`;`),
+  ).then(down(r => `drop function ${r.name}${r.args};`))
 
 
-const R_Auto_Function = Seq(
-            S`create (or replace )?function`,
-  {
-    name:   SQLID,
-    args:   /\([^\)]*\)/
-  },
-            /((?!as)(.|\n))*as\s+/i, // we go until the function definition.
-            Either(
-              R(/[$_\w]+/).map(r => {
-                const reg = `(?:(?!${escape(r[0])})[^])*?${escape(r[0])}`
-                // console.log(reg)
-                return R(new RegExp(reg, 'i'))
-              }),
-              /'(''|[^])*'/,
-            ),
-            /[^;]*;/
-            // /\$\$((?!\$\$)(?:\n|.))*\$\$[^;]*;/i,
-).map(down(r => `drop function ${r.name}${r.args};`))
+  R_Auto_RLS = Seq(
+    A`alter table`,
+    { table: this.SqlId },
+    A`enable row level security`, P`;`
+  ).then(down(r => `alter table ${r.table} disable row level security;`))
 
 
-const R_Auto_RLS = Seq(
-        S`alter table`,
-        { table: SQLID },
-        S`enable row level security\\s*;`
-).map(down(r => `alter table ${r.table} disable row level security;`))
+  R_Auto_Comment = Seq(A`comment`, AnyTokenBut(P`;`), P`;`).then(r => [ { kind: 'up', contents: r[0] } ])
 
-
-const R_Auto_Comment = R(/comment[^;]+;/i).map(r => [ { kind: 'up', contents: r[0] } ])
-
-
-const RMutation = Seq(
-                /mutation/i,
-    { id:       ID,
-    depends:    Seq(
-                              /depends\s+on/i,
-                  { depends:  ID.SeparatedBy(',') }
-                ).map(r => r.depends).Optional(),
-    search:     Seq(
-                          /with\s+search\s+path/i,
-                  { sp:   ID.SeparatedBy(',') }
-                ).map(r => r.sp).Optional(),
-    statements: Either(R_Autos, R_Auto_Grant, R_Auto_Trigger, R_Auto_Function, R_Auto_RLS, R_Auto_Comment).Repeat()
+  RMutation = Seq(
+      A`mutation`,
+  { id:       this.SqlId,
+  depends:    Opt(Seq(A`depends on`,
+        { depends:  SeparatedBy(P`,`, this.SqlId) }
+      ).then(r => r.depends)),
+  search:     Opt(Seq(
+        A`with search path`,
+        { sp:   SeparatedBy(P`,`, this.SqlId) }
+      ).then(r => r.sp)),
+  statements: Repeat(Either(
+    this.R_Autos,
+    this.R_Auto_Grant,
+    this.R_Auto_Trigger,
+    this.R_Auto_Function,
+    this.R_Auto_RLS,
+    this.R_Auto_Comment))
   })
 
-const Mutations = RMutation.Repeat()
+  Mutations = Seq({ res: Repeat(this.RMutation) }, this.Eof).then(r => r.res)
 
-var fparse = Parser(Mutations, /([\n\s \t\r]|--[^\n]*\n?)+/)
+  parse(input: string) {
+    return this.parseRule(input, this.Mutations, tk => new DmutContext(tk), { enable_line_counts: true })
+  }
+
+}
 
 
+const down = <T>(fn: (r: T) => string) => (r: T, ctx: Context, pos: number, start: number) => [
+  { kind: 'down', contents: fn(r) },
+  { kind: 'up', contents: ctx.input.slice(start, pos).map(c => c.str).join('').trim() }
+]
+
+
+const parser = new DmutParser()
+parser.nameRules()
 // A mutation map, with their statements
 const mutations = new Map<string, {mutation: Mutation, parents: string[]}>()
 
 for (var arg of args) {
-  const cts = fs.readFileSync(arg, 'utf-8')
+  var cts = fs.readFileSync(arg, 'utf-8')
   files.set(arg, cts)
-  const res = fparse(cts)
-  if (res === NoMatch) {
-    console.log(arg, 'did not match')
-    if (Res.max_res) {
-      // console.log(Res.max_res)
-      const line = cts.slice(0, Res.max_res.pos).split(/\n/g).length
-      console.log(`Input left line ${line}: "${cts.slice(Res.max_res.pos, Res.max_res.pos + 100)}..."`)
-    }
+  var res = parser.parse(cts)
+  if (res.status === 'tokenerror') {
+    console.log(arg, 'did not lex', res.max_pos, ch.grey(`...'${cts.slice(res.max_pos, res.max_pos + 100)}'`))
+  } else if (res.status === 'nomatch') {
+    console.log(res.rule)
+    var tk = res.tokens[res.pos]
+    console.log(arg, `did not match`, res.pos,  res.tokens.slice(res.pos, res.pos + 5).map(t => `T<${t.str}:${t.def._name}@${t.line}>`))
+    throw new Error(`Parse failed`)
   } else {
-    var presult = res.res
+    var presult = res.value
     for (let mp of presult) {
       // console.log(mp.id)
       var m = new Mutation(mp.id)
@@ -149,8 +211,9 @@ for (var arg of args) {
 
 // console.log(mutations.keys())
 for (let m of mutations.values()) {
-  const parents = m.parents?.map(p => {
-    const res = mutations.get(p)
+  console.log(m)
+  var parents = m.parents?.map(p => {
+    var res = mutations.get(p)
     if (!res) throw new Error(`Mutation "${m.mutation.identifier}" depends on inexistant mutation "${p}"`)
     return res.mutation
   })
@@ -166,10 +229,11 @@ for (let m of mutations.values()) {
 }
 
 // const all_mutations = [...mutations.values()].map(m => m.mutation)
+process.exit(0)
 const client = new pg.Client(process.argv[2])
 client.connect().then(() => {
-  const runner = new MutationRunner(client)
-  return runner.mutate(all_mutations)
+  var runner = new MutationRunner(client)
+  // return runner.mutate(all_mutations)
 }).then(e => {
   console.log('done.')
   client.end()
