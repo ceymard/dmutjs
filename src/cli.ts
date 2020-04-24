@@ -100,7 +100,7 @@ export class DmutParser extends Parseur<DmutContext> {
     A`create`, Opt(A`or replace`), A`function`,
     {
       name:   this.SqlId,
-      args:   AnyTokenUntil(P`)`)
+      args:   AnyTokenUntil(P`)`, { include_end: true }).then(r => r.tokens.map(t => t.str).join(''))
       // args:   /\([^\)]*\)/
     },
     AnyTokenUntil(A`as`),
@@ -176,8 +176,8 @@ for (var arg of args) {
   if (res.status === 'tokenerror') {
     console.log(arg, 'did not lex', res.max_pos, ch.grey(`...'${cts.slice(res.max_pos, res.max_pos + 100)}'`))
   } else if (res.status === 'nomatch') {
-    console.log(res.rule)
-    var tk = res.tokens[res.pos]
+    // console.log(res.rule)
+    // var tk = res.tokens[res.pos]
     console.log(arg, `did not match`, res.pos,  res.tokens.slice(res.pos, res.pos + 5).map(t => `T<${t.str}:${t.def._name}@${t.line}>`))
     throw new Error(`Parse failed`)
   } else {
@@ -211,7 +211,7 @@ for (var arg of args) {
 
 // console.log(mutations.keys())
 for (let m of mutations.values()) {
-  console.log(m)
+  // console.log(m)
   var parents = m.parents?.map(p => {
     var res = mutations.get(p)
     if (!res) throw new Error(`Mutation "${m.mutation.identifier}" depends on inexistant mutation "${p}"`)
@@ -228,12 +228,13 @@ for (let m of mutations.values()) {
   all_mutations.add(m.mutation)
 }
 
+// console.log(all_mutations)
 // const all_mutations = [...mutations.values()].map(m => m.mutation)
-process.exit(0)
+// process.exit(0)
 const client = new pg.Client(process.argv[2])
 client.connect().then(() => {
   var runner = new MutationRunner(client)
-  // return runner.mutate(all_mutations)
+  return runner.mutate(all_mutations)
 }).then(e => {
   console.log('done.')
   client.end()
