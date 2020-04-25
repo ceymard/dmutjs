@@ -62,7 +62,6 @@ export class DmutParser extends Parseur<DmutContext> {
     { type:   Either(
                 Either(
                   A`table`,
-                  A`index`,
                   A`role`,
                   A`extension`,
                   A`schema`,
@@ -74,6 +73,14 @@ export class DmutParser extends Parseur<DmutContext> {
     { id:     this.SqlId },
     AnyTokenUntil(P`;`),
   ).then(down(r => `drop ${r.type} ${r.id};`))
+
+  R_Auto_Index = Seq(
+    A`create index`,
+    { idx: this.SqlId },
+    A`on`,
+    { tbl: this.SqlId },
+    AnyTokenUntil(P`;`)
+  ).then(down(r => `drop index ${r.tbl.includes('.') ? r.tbl.split('.')[0] + '.': ''}${r.idx}`))
 
   R_Auto_Grant = Seq(
         A`grant`,
@@ -127,7 +134,6 @@ export class DmutParser extends Parseur<DmutContext> {
     A`enable row level security`, P`;`
   ).then(down(r => `alter table ${r.table} disable row level security;`))
 
-
   R_Auto_Comment = Seq(A`comment`, AnyTokenBut(P`;`), P`;`).then(r => [ { kind: 'up', contents: r[0] } ])
 
   RMutation = Seq(
@@ -142,6 +148,7 @@ export class DmutParser extends Parseur<DmutContext> {
       ).then(r => r.sp)),
   statements: Repeat(Either(
     this.R_Autos,
+    this.R_Auto_Index,
     this.R_Auto_Grant,
     this.R_Auto_Trigger,
     this.R_Auto_Function,
