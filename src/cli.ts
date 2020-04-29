@@ -75,7 +75,9 @@ export class DmutParser extends Parseur<DmutContext> {
   ).then(down(r => `drop ${r.type} ${r.id};`))
 
   R_Auto_Index = Seq(
-    A`create index`,
+    A`create`,
+    Opt(A`unique`),
+    A`index`,
     { idx: this.SqlId },
     A`on`,
     { tbl: this.SqlId },
