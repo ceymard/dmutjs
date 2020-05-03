@@ -6,7 +6,7 @@ import { MutationRunner } from './database'
 import ch from 'chalk'
 // import * as util from 'util'
 
-import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt } from 'parseur'
+import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt, Token } from 'parseur'
 
 const args = process.argv.slice(3)
 const files = new Map<string, string>()
@@ -49,6 +49,15 @@ export class DmutParser extends Parseur<DmutContext> {
   // Id = this.ID.then(i => i.str)
 
   SqlIdBase = this.SQLID_BASE.then(s => s.str)
+
+  SqlidString = Seq(
+    this.SqlIdBase.then((i, ctx) => {
+      ctx.current_marker = i
+      return i
+    }),
+    AnyTokenUntil(this.SqlIdBase.then((i, ctx) => i !== ctx.current_marker ? NoMatch : i)),
+  )
+
 
   SqlId = Seq({
     id:     this.SqlIdBase,
@@ -120,13 +129,7 @@ export class DmutParser extends Parseur<DmutContext> {
     // /((?!as)(.|\n))*as\s+/i, // we go until the function definition.
     Either(
       // Match a named string
-      Seq(
-        this.SqlIdBase.then((i, ctx) => {
-          ctx.current_marker = i
-          return i
-        }),
-        AnyTokenUntil(this.SqlIdBase.then((i, ctx) => i !== ctx.current_marker ? NoMatch : i)),
-      ),
+      this.SqlidString,
       // Or just a regular string.
       this.STRING,
     ),
@@ -150,6 +153,15 @@ export class DmutParser extends Parseur<DmutContext> {
 
   R_Auto_Comment = Seq(A`comment`, AnyTokenBut(P`;`), P`;`).then((r, c, end, start) => [ { kind: 'up', contents: c.input.slice(start, end).map(t => t.str).join('') } ])
 
+  R_Down = Seq(
+    { kind: Either(A`down`, A`up`) },
+    { contents: this.SqlidString.then((_, c, end, start) => {
+      var tk: Token | undefined
+      while ((tk = c.input[start], tk.is_skip)) { start++ }
+      return c.input.slice(start + 1, end - 1).map(t => t.str).join('')
+    }) }
+  ).then(r => [r])
+
   RMutation = Seq(
       A`mutation`,
   { id:       this.SqlId,
@@ -161,6 +173,7 @@ export class DmutParser extends Parseur<DmutContext> {
         { sp:   SeparatedBy(P`,`, this.SqlId) }
       ).then(r => r.sp)),
   statements: Repeat(Either(
+    this.R_Down,
     this.R_Autos,
     this.R_Auto_Set,
     this.R_Auto_Index,
