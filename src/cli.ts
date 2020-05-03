@@ -133,6 +133,14 @@ export class DmutParser extends Parseur<DmutContext> {
     AnyTokenUntil(P`;`),
   ).then(down(r => `drop function ${r.name}${r.args};`))
 
+  R_Auto_Set = Seq(
+    A`alter database`,
+    { db: this.SqlId },
+    A`set`,
+    { id: this.SqlId },
+    A`to`,
+    AnyTokenUntil(P`;`)
+  ).then(down(r => `alter database ${r.db} reset ${r.id}`))
 
   R_Auto_RLS = Seq(
     A`alter table`,
@@ -154,6 +162,7 @@ export class DmutParser extends Parseur<DmutContext> {
       ).then(r => r.sp)),
   statements: Repeat(Either(
     this.R_Autos,
+    this.R_Auto_Set,
     this.R_Auto_Index,
     this.R_Auto_Grant,
     this.R_Auto_Trigger,
