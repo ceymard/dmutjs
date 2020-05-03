@@ -29,8 +29,9 @@ export class DmutParser extends Parseur<DmutContext> {
   }
 
   /* @ts-ignore */
-  private _1 = P = this.P
-  private _2 = A = this.A.bind(this)
+  _1 = P = this.P
+  /* @ts-ignore */
+  _2 = A = this.A.bind(this)
 
   // leftover tokens
   // ... unused for now but could be used ?
@@ -88,7 +89,10 @@ export class DmutParser extends Parseur<DmutContext> {
         A`grant`,
     { rights:   AnyTokenUntil(A`on`)
             .then(r => r.tokens.map(t => t.str).join(' ')) },
-    { obj:      this.SqlId },
+    { obj:      Seq(
+                  { opt: Opt(Either(A`schema`, A`large object`, A`tablespace`, A`foreign server`, A`foreign data wrapper`, A`database`, A`sequence`, A`all sequences in schema`, A`table`, A`all tables in schema`, A`function`, A`all functions in schema`)) },
+                  { id: this.SqlId }
+                ).then(r => [r.opt, r.id].filter(_ => !!_).join(' ')) },
         A`to`,
     { to:       this.SqlId },
         AnyTokenUntil(P`;`),
@@ -136,7 +140,7 @@ export class DmutParser extends Parseur<DmutContext> {
     A`enable row level security`, P`;`
   ).then(down(r => `alter table ${r.table} disable row level security;`))
 
-  R_Auto_Comment = Seq(A`comment`, AnyTokenBut(P`;`), P`;`).then(r => [ { kind: 'up', contents: r[0] } ])
+  R_Auto_Comment = Seq(A`comment`, AnyTokenBut(P`;`), P`;`).then((r, c, end, start) => [ { kind: 'up', contents: c.input.slice(start, end).map(t => t.str).join('') } ])
 
   RMutation = Seq(
       A`mutation`,
