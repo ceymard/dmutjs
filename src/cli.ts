@@ -162,6 +162,25 @@ export class DmutParser extends Parseur<DmutContext> {
     }) }
   ).then(r => [r])
 
+  // This is my own stuff
+  R_Not_Null = Seq(
+    A`mark columns not null`,
+    { cols: SeparatedBy(P`,`, this.SqlId) },
+    A`on`,
+    { obj: this.SqlId },
+    P`;`,
+  ).then(r => {
+    var res = [] as {kind: string, contents: string}[]
+    for (var col of r.cols) {
+      res.push(
+        { kind: 'down', contents: /* sql */ `UPDATE pg_attribute SET attnotnull = False WHERE attrelid = '${r.obj}'::regclass::oid AND attname = '${col}'` },
+        { kind: 'up', contents: /* sql */ `UPDATE pg_attribute SET attnotnull = True WHERE attrelid = '${r.obj}'::regclass::oid AND attname = '${col}'` },
+      )
+
+    }
+    return res
+  })
+
   RMutation = Seq(
       A`mutation`,
   { id:       this.SqlId,
@@ -173,6 +192,7 @@ export class DmutParser extends Parseur<DmutContext> {
         { sp:   SeparatedBy(P`,`, this.SqlId) }
       ).then(r => r.sp)),
   statements: Repeat(Either(
+    this.R_Not_Null,
     this.R_Down,
     this.R_Autos,
     this.R_Auto_Set,
