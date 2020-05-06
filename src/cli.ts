@@ -13,7 +13,7 @@ const files = new Map<string, string>()
 
 
 export class DmutContext extends Context {
-  current_marker?: string
+  current_marker: string[] = []
 }
 
 var P!: DmutParser['P']
@@ -36,14 +36,14 @@ export class DmutParser extends Parseur<DmutContext> {
   // leftover tokens
   // ... unused for now but could be used ?
   leftovers = [
-    '::', ':', '(', ')', '[', ']', '{', '}', '|', '=', '#', '?', '!', '~', '-', '>', '<', '+', '*', '/', '|', '%',
+    '::', ':', '(', ')', '[', ']', '{', '}', '|', '=', '#', '?', '!', '~', '-', '>', '<', '+', '*', '/', '|', '%', '^'
   ].map(t => this.token(t))
   NUM = this.token(/\d+/)
   //
 
   // ID = this.token(/[$a-zA-Z_]\w+/)
   SQLID_BASE = this.token(/"(""|[^"])*"|[@$a-zA-Z_][\w$]*|\[[^\]]+\]|`(``|[^`])*`/)
-  STRING = this.token(/'(''|[^'])*'/)
+  STRING = this.token(/'(\\'|''|[^'])*'/)
   WS = this.token(/(\s|--[^\n]*\n?)+/).skip()
 
   // Id = this.ID.then(i => i.str)
@@ -52,10 +52,10 @@ export class DmutParser extends Parseur<DmutContext> {
 
   SqlidString = Seq(
     this.SqlIdBase.then((i, ctx) => {
-      ctx.current_marker = i
+      ctx.current_marker.unshift(i)
       return i
     }),
-    AnyTokenUntil(this.SqlIdBase.then((i, ctx) => i !== ctx.current_marker ? NoMatch : i)),
+    AnyTokenUntil(this.SqlIdBase.then((i, ctx) => i !== ctx.current_marker[0] ? NoMatch : (ctx.current_marker.shift(), i))),
   )
 
 
