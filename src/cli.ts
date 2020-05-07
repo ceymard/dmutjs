@@ -286,8 +286,10 @@ for (let m of mutations.values()) {
 // console.log(all_mutations)
 // const all_mutations = [...mutations.values()].map(m => m.mutation)
 // process.exit(0)
-const client = new pg.Client(process.argv[2])
+console.log(`Connecting to ${process.argv[2] ?? 'localhost'}`)
+const client = new pg.Client(process.argv[2] ?? process.env.PGRST_URI ?? process.env.DB_URI ?? process.env.DATABASE_URI)
 client.connect().then(() => {
+  console.log(`... connected`)
   var runner = new MutationRunner(client)
   return runner.mutate(all_mutations)
 }).then(e => {
