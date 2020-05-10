@@ -159,7 +159,8 @@ export class DmutParser extends Parseur<DmutContext> {
       var tk: Token | undefined
       while ((tk = c.input[start], tk.is_skip)) { start++ }
       return c.input.slice(start + 1, end - 1).map(t => t.str).join('')
-    }) }
+    }) },
+    Opt(P`;`)
   ).then(r => [r])
 
   // This is my own stuff
@@ -292,8 +293,10 @@ client.connect().then(() => {
   console.log(`... connected`)
   var runner = new MutationRunner(client)
   return runner.mutate(all_mutations)
+}).catch(e => {
+  console.error(e.message)
 }).then(e => {
   console.log('done.')
   client.end()
-}).catch(e => console.error(e))
+})
 // console.log(files)

@@ -47,7 +47,15 @@ export class MutationRunner {
       const res = await this.client.query(stmt, args)
       return res
     } catch (e) {
-      console.log(`${ch.grey.bold('On statement:')}\n  ${ch.grey(stmt)}`)
+      const pos = e.position - 1
+      var re = /[\w$."']+|[^\w\s]+/y
+      re.lastIndex = pos
+      var m = re.exec(stmt)
+      var str = ch.grey(stmt.slice(0, pos)) + ch.red(stmt.slice(pos))
+      if (m) {
+        str = ch.grey(stmt.slice(0, pos)) + ch.red(m[0]) + ch.grey(stmt.slice(pos + m[0].length))
+      }
+      console.log(`${ch.grey.bold('On statement:')}\n  ${str}`)
       console.log(`  ${ch.redBright(e.message)}`)
       throw e
     }
