@@ -43,20 +43,12 @@ export class DmutParser extends Parseur<DmutContext> {
 
   // ID = this.token(/[$a-zA-Z_]\w+/)
   SQLID_BASE = this.token(/"(""|[^"])*"|[@$a-zA-Z_][\w$]*|\[[^\]]+\]|`(``|[^`])*`/)
-  STRING = this.token(/'(\\'|''|[^'])*'/)
+  STRING = this.token(/'(?:\\.|''|[^'])*'|(\$\w*\$)(?:(?!\1)[^])*\1/)
   WS = this.token(/(\s|--[^\n]*\n?)+/).skip()
 
   // Id = this.ID.then(i => i.str)
 
   SqlIdBase = this.SQLID_BASE.then(s => s.str)
-
-  SqlidString = Seq(
-    this.SqlIdBase.then((i, ctx) => {
-      ctx.current_marker.unshift(i)
-      return i
-    }),
-    AnyTokenUntil(this.SqlIdBase.then((i, ctx) => i !== ctx.current_marker[0] ? NoMatch : (ctx.current_marker.shift(), i))),
-  )
 
 
   SqlId = Seq({
@@ -127,12 +119,12 @@ export class DmutParser extends Parseur<DmutContext> {
     },
     AnyTokenUntil(A`as`),
     // /((?!as)(.|\n))*as\s+/i, // we go until the function definition.
-    Either(
+    // Either(
       // Match a named string
-      this.SqlidString,
+      // this.SqlidString,
       // Or just a regular string.
       this.STRING,
-    ),
+    // ),
     AnyTokenUntil(P`;`),
   ).then(down(r => `drop function ${r.name}${r.args};`))
 
@@ -155,10 +147,17 @@ export class DmutParser extends Parseur<DmutContext> {
 
   R_Down = Seq(
     { kind: Either(A`down`, A`up`) },
-    { contents: this.SqlidString.then((_, c, end, start) => {
-      var tk: Token | undefined
-      while ((tk = c.input[start], tk.is_skip)) { start++ }
-      return c.input.slice(start + 1, end - 1).map(t => t.str).join('')
+    { contents: this.STRING.then((_, c, end, start) => {
+      const marker = /^('|\$\w*\$)([^]*)\1$/
+      var m = marker.exec(_.str)
+      if (!m) {
+        // console.log(_.str)
+        throw new Error('did not find string delimiter')
+      }
+      return m[2]
+      // var tk: Token | undefined
+      // while ((tk = c.input[start], tk.is_skip)) { start++ }
+      // return c.input.slice(start + 1, end - 1).map(t => t.str).join('')
     }) },
     Opt(P`;`)
   ).then(r => [r])
@@ -230,11 +229,13 @@ for (var arg of args) {
   files.set(arg, cts)
   var res = parser.parse(cts)
   if (res.status === 'tokenerror') {
+    // const tk = res.tokens
+    // console.log('<<' + tk.slice(Math.max(0, tk.length - 5), tk.length).map(t => t.str).join('>>, <<') + '>>')
     console.log(arg, 'did not lex', res.max_pos, ch.grey(`...'${cts.slice(res.max_pos, res.max_pos + 100)}'`))
   } else if (res.status === 'nomatch') {
     // console.log(res.rule)
     // var tk = res.tokens[res.pos]
-    console.log(arg, `did not match`, res.pos,  res.tokens.slice(res.pos, res.pos + 5).map(t => `T<${t.str}:${t.def._name}@${t.line}>`))
+    console.log(arg, `did not match`, res.pos,  res.tokens.filter(t => !t.is_skip).slice(res.pos, res.pos + 14).map(t => `T<${t.str}:${t.def._name}@${t.line}>`))
     throw new Error(`Parse failed`)
   } else {
     var presult = res.value
@@ -292,7 +293,7 @@ const client = new pg.Client(process.argv[2] ?? process.env.PGRST_URI ?? process
 client.connect().then(() => {
   console.log(`... connected`)
   var runner = new MutationRunner(client)
-  return runner.mutate(all_mutations)
+  return runner.mutate(all_mutations, false)
 }).catch(e => {
   console.error(e.message)
 }).then(e => {

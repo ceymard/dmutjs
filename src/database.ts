@@ -115,7 +115,7 @@ export class MutationRunner {
   /**
    * Perform the mutations
    */
-  async mutate(_mutations: Set<Mutation>) {
+  async mutate(_mutations: Set<Mutation>, test = false) {
 
     // Add the mutations in the order they need to run.
     function _add(m: Mutation) {
@@ -205,7 +205,7 @@ export class MutationRunner {
       // Once we're done, we might want to commit...
       // await query('rollback')
       if (!this.testing && touched) {
-        await this.test(mutations)
+        if (test) await this.test(mutations)
         await this.query('commit')
       }
 
