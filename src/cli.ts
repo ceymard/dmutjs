@@ -33,6 +33,8 @@ export class DmutParser extends Parseur<DmutContext> {
   /* @ts-ignore */
   _2 = A = this.A.bind(this)
 
+  LongComment = this.token(/\/\*\??[^]*?\*\//)
+
   // leftover tokens
   // ... unused for now but could be used ?
   leftovers = [
@@ -50,7 +52,6 @@ export class DmutParser extends Parseur<DmutContext> {
 
   SqlIdBase = this.SQLID_BASE.then(s => s.str)
 
-
   SqlId = Seq({
     id:     this.SqlIdBase,
     rest:   Repeat(P`. ${this.SqlIdBase}`.then(r => '.' + r))
@@ -60,6 +61,7 @@ export class DmutParser extends Parseur<DmutContext> {
 
   // The easily droppable ones, where undoing them is just about dropping their ID.
   R_Autos = Seq(
+    { cmt: Opt(this.LongComment) },
     A`create`,
     { type:   Either(
                 Either(
