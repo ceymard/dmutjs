@@ -205,7 +205,10 @@ export class MutationRunner {
       // Once we're done, we might want to commit...
       // await query('rollback')
       if (!this.testing && touched) {
-        if (test) await this.test(mutations)
+        if (test) {
+          console.log(`now testing mutations`)
+          await this.test(mutations)
+        }
         await this.query('commit')
       }
 

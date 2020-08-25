@@ -15,8 +15,10 @@
   "main": "./lib/dmut.js",
   "types": "./lib/dmut.d.ts",
   "dependencies": {
+    "@types/minimist": "^1.2.0",
     "@types/pg": "^7.14.3",
     "chalk": "^2.3.0",
+    "minimist": "^1.2.5",
     "parseur": "^0.1.0",
     "pg": "^7.4.1"
   },

@@ -4,11 +4,21 @@ import * as pg from 'pg'
 import { Mutation, DmutBaseMutation, DmutComments } from './mutation'
 import { MutationRunner } from './database'
 import ch from 'chalk'
+import * as min from 'minimist'
+
+const arr = min(process.argv.slice(2), {
+  boolean: ['notest', 'help'],
+  string: ['testhost'],
+  alias: {h: 'help', n: 'notest', t: 'testhost'}
+})
+const NO_TEST: boolean | undefined = arr.notest
+const TEST_HOST: string | undefined = arr.testhost
+
 // import * as util from 'util'
 
-import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt, Token } from 'parseur'
+import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt } from 'parseur'
 
-const args = process.argv.slice(3)
+const [host, ...args] = arr._
 const files = new Map<string, string>()
 
 
@@ -290,16 +300,27 @@ for (let m of mutations.values()) {
 // console.log(all_mutations)
 // const all_mutations = [...mutations.values()].map(m => m.mutation)
 // process.exit(0)
-console.log(`Connecting to ${process.argv[2] ?? 'localhost'}`)
-const client = new pg.Client(process.argv[2] ?? process.env.PGRST_URI ?? process.env.DB_URI ?? process.env.DATABASE_URI)
-client.connect().then(() => {
+var EXIT = 0
+console.log(`Connecting to ${host ?? 'localhost'}`)
+const client = new pg.Client(host ?? process.env.PGRST_URI ?? process.env.DB_URI ?? process.env.DATABASE_URI)
+client.connect().then(async () => {
   console.log(`... connected`)
+  if (TEST_HOST) {
+    console.log(`Running mutations on test host ${TEST_HOST}`)
+    var test_client = new pg.Client(TEST_HOST)
+    await test_client.connect()
+    var test_runner = new MutationRunner(test_client)
+    await test_runner.mutate(all_mutations, true)
+  }
   var runner = new MutationRunner(client)
-  return runner.mutate(all_mutations, false)
+  return runner.mutate(all_mutations, !NO_TEST && !TEST_HOST)
 }).catch(e => {
   console.error(e.message)
-}).then(e => {
+  EXIT = 1
+
+}).then(async e => {
   console.log('done.')
-  client.end()
+  await client.end()
+  process.exit(EXIT)
 })
 // console.log(files)
