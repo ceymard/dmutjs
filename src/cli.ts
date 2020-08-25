@@ -91,7 +91,7 @@ export class DmutParser extends Parseur<DmutContext> {
     if (r.cmt) {
       res.push({kind: 'comment', contents: `comment on ${r.type} ${r.id} is $$${r.cmt.str.replace(/\/\*[^\s]*|\*\//g, '').trim()}$$`})
     }
-    if (r.type === 'table') {
+    if (r.type === 'table' || r.type === 'type' || r.type === 'view' || r.type === 'materialized view') {
       for (var cm of r.rest.matched) {
         res.push({kind: 'comment', contents: `comment on column ${r.id}.${cm.id} is $$${cm.cmt.str.replace(/\/\*[^\s]*|\*\//g, '').trim()}$$`})
       }
