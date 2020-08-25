@@ -16,7 +16,7 @@ const TEST_HOST: string | undefined = arr.testhost
 
 // import * as util from 'util'
 
-import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt } from 'parseur'
+import { Seq, Either, NoMatch, AnyTokenUntil, Parseur, Repeat, Context, Not, Rule, AnyTokenBut, SeparatedBy, Opt, TryRepeat } from 'parseur'
 
 const [host, ...args] = arr._
 const files = new Map<string, string>()
@@ -85,8 +85,19 @@ export class DmutParser extends Parseur<DmutContext> {
                 ),
               ) },
     { id:     this.SqlId },
-    AnyTokenUntil(P`;`),
-  ).then(down(r => `drop ${r.type} ${r.id};`))
+    { rest: TryRepeat(Seq({ cmt: this.LongComment, id: this.SqlId }), P`;`) },
+  ).then((r, ctx, pos, start) => {
+    var res = down<typeof r>(r => `drop ${r.type} ${r.id};`)(r, ctx, pos, start)
+    if (r.cmt) {
+      res.push({kind: 'comment', contents: `comment on ${r.type} ${r.id} is $$${r.cmt.str.replace(/\/\*[^\s]*|\*\//g, '').trim()}$$`})
+    }
+    if (r.type === 'table') {
+      for (var cm of r.rest.matched) {
+        res.push({kind: 'comment', contents: `comment on column ${r.id}.${cm.id} is $$${cm.cmt.str.replace(/\/\*[^\s]*|\*\//g, '').trim()}$$`})
+      }
+    }
+    return res
+  })
 
   R_Auto_Index = Seq(
     A`create`,
@@ -254,6 +265,8 @@ for (var arg of args) {
     for (let mp of presult) {
       // console.log(mp.id)
       var m = new Mutation(mp.id)
+      var mcomments = new Mutation(`${mp.id}.comments`)
+      var added_comments = false
       if (mp.search) {
         m.statements.unshift(`set search_path = ${mp.search.join(', ')};`)
         m.statements.push(`reset search_path;`)
@@ -266,6 +279,13 @@ for (var arg of args) {
         for (var stmt of stmts) {
           if (stmt.kind === 'down') m.down(stmt.contents)
           else if (stmt.kind === 'up') m.up(stmt.contents)
+          else if (stmt.kind === 'comment') {
+            if (!added_comments) {
+              added_comments = true
+              mutations.set(mcomments.identifier, { mutation: mcomments, parents: [mp.id] })
+            }
+            mcomments.up(stmt.contents)
+          }
         }
       }
     }
@@ -312,6 +332,7 @@ client.connect().then(async () => {
     var test_runner = new MutationRunner(test_client)
     await test_runner.mutate(all_mutations, true)
   }
+  console.log(`Running mutations on ${host}`)
   var runner = new MutationRunner(client)
   return runner.mutate(all_mutations, !NO_TEST && !TEST_HOST)
 }).catch(e => {
