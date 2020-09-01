@@ -277,14 +277,17 @@ for (var arg of args) {
       mutations.set(mp.id, { mutation: m, parents: mp.depends ?? [] })
       for (var stmts of mp.statements) {
         for (var stmt of stmts) {
-          if (stmt.kind === 'down') m.down(stmt.contents)
-          else if (stmt.kind === 'up') m.up(stmt.contents)
+          const cts = stmt.contents.replace(/\$\{[^}]*?\}/g, m => {
+            return eval(m.slice(2, -1))
+          })
+          if (stmt.kind === 'down') m.down(cts)
+          else if (stmt.kind === 'up') m.up(cts)
           else if (stmt.kind === 'comment') {
             if (!added_comments) {
               added_comments = true
               mutations.set(mcomments.identifier, { mutation: mcomments, parents: [mp.id] })
             }
-            mcomments.up(stmt.contents)
+            mcomments.up(cts)
           }
         }
       }
